@@ -28,6 +28,8 @@ public class AiLogAnalyzerAction implements RunAction2 {
     private int maxLogLines;
     private String customPromptPrefix;
     private String aiModel;
+    private transient volatile Thread activeThread;
+    private transient volatile HttpURLConnection activeConnection;
 
     public AiLogAnalyzerAction(Run<?, ?> run, int maxLogLines, String customPromptPrefix, String aiModel) {
         this.run = run;
@@ -178,6 +180,9 @@ public class AiLogAnalyzerAction implements RunAction2 {
         IOException lastException = null;
 
         for (int i = 0; i < models.length; i++) {
+            if (Thread.currentThread().isInterrupted()) {
+                throw new IOException("Analysis stopped by user.");
+            }
             String currentModel = models[i];
             try {
                 if (logger != null) {
@@ -201,73 +206,81 @@ public class AiLogAnalyzerAction implements RunAction2 {
                 // Call the API
                 URL url = new URL(endpointUrl);
                 HttpURLConnection conn = (HttpURLConnection) url.openConnection();
-                conn.setRequestMethod("POST");
-                conn.setRequestProperty("Content-Type", "application/json");
-                conn.setRequestProperty("Accept", "application/json");
-                if (apiKey != null && !apiKey.getPlainText().isEmpty()) {
-                    conn.setRequestProperty("Authorization", "Bearer " + apiKey.getPlainText());
-                    conn.setRequestProperty("x-api-key", apiKey.getPlainText());
-                }
-                conn.setConnectTimeout(30000); // 30 seconds
-                conn.setReadTimeout(30000);
-                conn.setDoOutput(true);
-
-                try (OutputStream os = conn.getOutputStream()) {
-                    byte[] input = payload.toString().getBytes(StandardCharsets.UTF_8);
-                    os.write(input, 0, input.length);
-                }
-
-                int responseCode = conn.getResponseCode();
-                if (responseCode >= 200 && responseCode < 300) {
-                    StringBuilder responseBuilder = new StringBuilder();
-                    try (BufferedReader br = new BufferedReader(new InputStreamReader(conn.getInputStream(), StandardCharsets.UTF_8))) {
-                        String responseLine;
-                        while ((responseLine = br.readLine()) != null) {
-                            responseBuilder.append(responseLine.trim());
-                        }
+                this.activeConnection = conn;
+                try {
+                    conn.setRequestMethod("POST");
+                    conn.setRequestProperty("Content-Type", "application/json");
+                    conn.setRequestProperty("Accept", "application/json");
+                    if (apiKey != null && !apiKey.getPlainText().isEmpty()) {
+                        conn.setRequestProperty("Authorization", "Bearer " + apiKey.getPlainText());
+                        conn.setRequestProperty("x-api-key", apiKey.getPlainText());
                     }
-                    
-                    String rawResponse = responseBuilder.toString();
-                    String result;
-                    
-                    try {
-                        org.json.JSONObject jsonResponse = new org.json.JSONObject(rawResponse);
-                        if (jsonResponse.has("choices")) {
-                            org.json.JSONArray choices = jsonResponse.getJSONArray("choices");
-                            if (choices.length() > 0) {
-                                org.json.JSONObject firstChoice = choices.getJSONObject(0);
-                                if (firstChoice.has("message")) {
-                                    org.json.JSONObject msgObj = firstChoice.getJSONObject("message");
-                                    if (msgObj.has("content")) {
-                                        result = msgObj.getString("content");
-                                        if (logger != null) {
-                                            logger.println("[AI Log Analyzer] Analysis completed successfully with model: " + currentModel);
-                                        }
-                                        return result;
-                                    }
-                                }
+                    conn.setConnectTimeout(30000); // 30 seconds
+                    conn.setReadTimeout(30000);
+                    conn.setDoOutput(true);
+
+                    try (OutputStream os = conn.getOutputStream()) {
+                        byte[] input = payload.toString().getBytes(StandardCharsets.UTF_8);
+                        os.write(input, 0, input.length);
+                    }
+
+                    int responseCode = conn.getResponseCode();
+                    if (responseCode >= 200 && responseCode < 300) {
+                        StringBuilder responseBuilder = new StringBuilder();
+                        try (BufferedReader br = new BufferedReader(new InputStreamReader(conn.getInputStream(), StandardCharsets.UTF_8))) {
+                            String responseLine;
+                            while ((responseLine = br.readLine()) != null) {
+                                responseBuilder.append(responseLine.trim());
                             }
                         }
                         
-                        if (jsonResponse.has("analysis")) {
-                            result = jsonResponse.getString("analysis");
-                        } else if (jsonResponse.has("message")) {
-                            result = jsonResponse.getString("message");
-                        } else {
-                            result = jsonResponse.toString(2);
+                        String rawResponse = responseBuilder.toString();
+                        String result;
+                        
+                        try {
+                            org.json.JSONObject jsonResponse = new org.json.JSONObject(rawResponse);
+                            if (jsonResponse.has("choices")) {
+                                org.json.JSONArray choices = jsonResponse.getJSONArray("choices");
+                                if (choices.length() > 0) {
+                                    org.json.JSONObject firstChoice = choices.getJSONObject(0);
+                                    if (firstChoice.has("message")) {
+                                        org.json.JSONObject msgObj = firstChoice.getJSONObject("message");
+                                        if (msgObj.has("content")) {
+                                            result = msgObj.getString("content");
+                                            if (logger != null) {
+                                                logger.println("[AI Log Analyzer] Analysis completed successfully with model: " + currentModel);
+                                            }
+                                            return result;
+                                        }
+                                    }
+                                }
+                            }
+                            
+                            if (jsonResponse.has("analysis")) {
+                                result = jsonResponse.getString("analysis");
+                            } else if (jsonResponse.has("message")) {
+                                result = jsonResponse.getString("message");
+                            } else {
+                                result = jsonResponse.toString(2);
+                            }
+                        } catch (org.json.JSONException e) {
+                            result = rawResponse;
                         }
-                    } catch (org.json.JSONException e) {
-                        result = rawResponse;
-                    }
 
-                    if (logger != null) {
-                        logger.println("[AI Log Analyzer] Analysis completed successfully with model: " + currentModel);
+                        if (logger != null) {
+                            logger.println("[AI Log Analyzer] Analysis completed successfully with model: " + currentModel);
+                        }
+                        return result;
+                    } else {
+                        throw new IOException("API Request failed with HTTP status code " + responseCode);
                     }
-                    return result;
-                } else {
-                    throw new IOException("API Request failed with HTTP status code " + responseCode);
+                } finally {
+                    this.activeConnection = null;
                 }
             } catch (IOException e) {
+                if (Thread.currentThread().isInterrupted()) {
+                    throw new IOException("Analysis stopped by user.", e);
+                }
                 lastException = e;
                 if (logger != null) {
                     logger.println("[AI Log Analyzer] Model " + currentModel + " failed: " + e.getMessage());
@@ -287,6 +300,9 @@ public class AiLogAnalyzerAction implements RunAction2 {
         rsp.setContentType("application/json");
 
         net.sf.json.JSONObject json = new net.sf.json.JSONObject();
+        synchronized (this) {
+            this.activeThread = Thread.currentThread();
+        }
         try {
             String selectedModel = req.getParameter("model");
             if (selectedModel != null && !selectedModel.trim().isEmpty()) {
@@ -313,7 +329,52 @@ public class AiLogAnalyzerAction implements RunAction2 {
             json.put("result", result);
         } catch (Exception e) {
             json.put("status", "error");
-            json.put("message", e.getMessage());
+            if (Thread.currentThread().isInterrupted()) {
+                json.put("message", "Analysis stopped by user.");
+            } else {
+                json.put("message", e.getMessage());
+            }
+        } finally {
+            synchronized (this) {
+                this.activeThread = null;
+                this.activeConnection = null;
+                // Clear interrupted status of thread before returning to pool
+                Thread.interrupted();
+            }
+        }
+        rsp.getWriter().write(json.toString());
+    }
+
+    @POST
+    public void doStopAnalysis(StaplerRequest req, StaplerResponse rsp) throws IOException, ServletException {
+        run.checkPermission(Run.UPDATE);
+        rsp.setContentType("application/json");
+
+        net.sf.json.JSONObject json = new net.sf.json.JSONObject();
+        boolean stopped = false;
+        synchronized (this) {
+            if (this.activeThread != null) {
+                this.activeThread.interrupt();
+                stopped = true;
+            }
+            if (this.activeConnection != null) {
+                try {
+                    this.activeConnection.disconnect();
+                    stopped = true;
+                } catch (Exception e) {
+                    // Ignore
+                }
+            }
+            this.activeThread = null;
+            this.activeConnection = null;
+        }
+
+        if (stopped) {
+            json.put("status", "success");
+            json.put("message", "Analysis stopped successfully.");
+        } else {
+            json.put("status", "success");
+            json.put("message", "No active analysis to stop.");
         }
         rsp.getWriter().write(json.toString());
     }

@@ -90,6 +90,9 @@
                         <button id="analyze-btn" onclick="startAnalysis()" style="background-color: #4f46e5; color: white; border: none; padding: 12px 28px; border-radius: 8px; font-size: 15px; font-weight: 600; cursor: pointer; transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1); display: inline-flex; align-items: center; gap: 8px; box-shadow: 0 4px 6px -1px rgba(79, 70, 229, 0.2), 0 2px 4px -1px rgba(79, 70, 229, 0.1);">
                             <span style="font-size: 16px;">✨</span> <span id="btn-text">${it.analysisResult != null ? 'Re-analyze Log' : 'Analyze Build Log'}</span>
                         </button>
+                        <button id="stop-btn" onclick="stopAnalysis()" style="background-color: #ef4444; color: white; border: none; padding: 12px 28px; border-radius: 8px; font-size: 15px; font-weight: 600; cursor: pointer; transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1); display: none; align-items: center; gap: 8px; box-shadow: 0 4px 6px -1px rgba(239, 68, 68, 0.2), 0 2px 4px -1px rgba(239, 68, 68, 0.1);">
+                            <span style="font-size: 16px;">🛑</span> <span>Stop Analysis</span>
+                        </button>
                     </div>
                 </div>
             </div>
@@ -114,6 +117,21 @@
                 }
                 #analyze-btn:disabled {
                     background-color: #9ca3af;
+                    box-shadow: none;
+                    transform: none;
+                    cursor: not-allowed;
+                }
+                #stop-btn:hover {
+                    background-color: #dc2626;
+                    transform: translateY(-1px);
+                    box-shadow: 0 6px 8px -1px rgba(239, 68, 68, 0.25), 0 4px 6px -1px rgba(239, 68, 68, 0.15);
+                }
+                #stop-btn:active {
+                    transform: translateY(0);
+                    box-shadow: 0 2px 4px -1px rgba(239, 68, 68, 0.2);
+                }
+                #stop-btn:disabled {
+                    background-color: #f87171;
                     box-shadow: none;
                     transform: none;
                     cursor: not-allowed;
@@ -432,16 +450,21 @@
                     });
                 }
 
+                var currentAbortController = null;
+
                 function startAnalysis() {
                     var btn = document.getElementById('analyze-btn');
+                    var stopBtn = document.getElementById('stop-btn');
                     var loader = document.getElementById('ai-loader');
                     var errorBanner = document.getElementById('ai-error-banner');
                     var resultContainer = document.getElementById('result-container');
                     var noResultContainer = document.getElementById('no-result-container');
                     var analysisText = document.getElementById('analysis-text');
 
-                    // Set loading state
-                    btn.disabled = true;
+                    // Set loading state: replace analyze-btn with stop-btn
+                    btn.style.display = 'none';
+                    stopBtn.style.display = 'inline-flex';
+                    stopBtn.disabled = false;
                     loader.style.display = 'flex';
                     errorBanner.style.display = 'none';
 
@@ -455,10 +478,14 @@
                     var select = document.getElementById('ai-model-select');
                     var selectedModel = select ? select.value : 'autodetect';
 
+                    currentAbortController = new AbortController();
+                    var signal = currentAbortController.signal;
+
                     fetch('startAnalysis', {
                         method: 'POST',
                         headers: headers,
-                        body: 'model=' + encodeURIComponent(selectedModel)
+                        body: 'model=' + encodeURIComponent(selectedModel),
+                        signal: signal
                     })
                     .then(response => {
                         if (!response.ok) {
@@ -468,7 +495,9 @@
                     })
                     .then(data => {
                         loader.style.display = 'none';
-                        btn.disabled = false;
+                        btn.style.display = 'inline-flex';
+                        stopBtn.style.display = 'none';
+                        currentAbortController = null;
 
                         if (data.status === 'success') {
                             // Update content and views
@@ -486,9 +515,47 @@
                     })
                     .catch(error => {
                         loader.style.display = 'none';
-                        btn.disabled = false;
-                        document.getElementById('error-message').textContent = error.message;
-                        errorBanner.style.display = 'flex';
+                        btn.style.display = 'inline-flex';
+                        stopBtn.style.display = 'none';
+                        currentAbortController = null;
+
+                        if (error.name === 'AbortError') {
+                            document.getElementById('error-message').textContent = 'Analysis was stopped by the user.';
+                            errorBanner.style.display = 'flex';
+                        } else {
+                            document.getElementById('error-message').textContent = error.message;
+                            errorBanner.style.display = 'flex';
+                        }
+                    });
+                }
+
+                function stopAnalysis() {
+                    var stopBtn = document.getElementById('stop-btn');
+                    stopBtn.disabled = true;
+
+                    // Immediately abort the fetch request in the UI
+                    if (currentAbortController) {
+                        currentAbortController.abort();
+                    }
+
+                    var headers = {
+                        'Content-Type': 'application/x-www-form-urlencoded'
+                    };
+                    if (crumbHeader && crumbValue) {
+                        headers[crumbHeader] = crumbValue;
+                    }
+
+                    // Call the backend to interrupt the analysis thread and close connection
+                    fetch('stopAnalysis', {
+                        method: 'POST',
+                        headers: headers
+                    })
+                    .then(response => response.json())
+                    .then(data => {
+                        console.log('Stop request response:', data);
+                    })
+                    .catch(err => {
+                        console.error('Error stopping analysis on server:', err);
                     });
                 }
             ]]></script>
