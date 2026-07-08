@@ -1,0 +1,79 @@
+<?jelly escape-by-default='true'?>
+<j:jelly xmlns:j="jelly:core" xmlns:st="jelly:stapler" xmlns:d="jelly:define" xmlns:l="/lib/layout" xmlns:t="/lib/hudson" xmlns:f="/lib/form">
+    <f:entry title="Run Automatically on Failure" field="runAutomatically" description="If checked, AI analysis will run automatically on build failures or unstable states. Otherwise, it will only run manually via the sidebar menu.">
+        <f:checkbox default="false" />
+    </f:entry>
+    
+    <f:entry title="Max Log Lines to Extract" field="maxLogLines" description="Number of lines to extract from the end of the log (e.g. 500)">
+        <f:textbox default="500" />
+    </f:entry>
+    
+    <f:entry title="Custom Prompt Prefix" field="customPromptPrefix" description="Prompt text to prepend before the log data">
+        <f:textarea default="Please analyze this build log and find the root cause of the error:" />
+    </f:entry>
+    
+    <f:entry title="AI Model" field="aiModel" description="Select the AI model. Choose 'autodetect' to let the plugin query active models from the server.">
+        <f:select id="aiModelSelect" style="width: 100%; max-width: 400px;" />
+    </f:entry>
+    
+    <f:entry>
+        <div style="margin-top: 5px;">
+            <input type="button" value="Load Models from Server" class="jenkins-button" id="btnLoadModels" />
+            <span id="loadModelsStatus" style="margin-left: 10px; font-weight: bold; font-size: 13px;"></span>
+        </div>
+        <script>
+            (function() {
+                var descriptor = <st:bind value="${descriptor}"/>;
+                var btn = document.getElementById('btnLoadModels');
+                if (btn) {
+                    btn.onclick = function() {
+                        var statusSpan = document.getElementById('loadModelsStatus');
+                        statusSpan.style.color = "blue";
+                        statusSpan.textContent = "Loading models...";
+                        
+                        descriptor.getAvailableModels(function(t) {
+                            var response = t.responseObject();
+                            if (response &amp;&amp; response.length > 0) {
+                                var select = document.querySelector('select[name="_.aiModel"]');
+                                if (!select) {
+                                    select = document.getElementById('aiModelSelect');
+                                }
+                                
+                                if (select) {
+                                    var currentVal = select.value;
+                                    select.innerHTML = '';
+                                    
+                                    var optAuto = document.createElement('option');
+                                    optAuto.value = 'autodetect';
+                                    optAuto.textContent = 'autodetect (Smart Fallback)';
+                                    select.appendChild(optAuto);
+                                    
+                                    for (var i = 0; i &lt; response.length; i++) {
+                                        var opt = document.createElement('option');
+                                        opt.value = response[i];
+                                        opt.textContent = response[i];
+                                        select.appendChild(opt);
+                                    }
+                                    
+                                    select.value = currentVal;
+                                    if (select.value !== currentVal) {
+                                        select.value = 'autodetect';
+                                    }
+                                    
+                                    statusSpan.style.color = "green";
+                                    statusSpan.textContent = "Loaded " + response.length + " models successfully.";
+                                } else {
+                                    statusSpan.style.color = "red";
+                                    statusSpan.textContent = "Error: Dropdown element not found.";
+                                }
+                            } else {
+                                statusSpan.style.color = "red";
+                                statusSpan.textContent = "Failed to load models. Make sure Global Endpoint and API Key are configured.";
+                            }
+                        });
+                    };
+                }
+            })();
+        </script>
+    </f:entry>
+</j:jelly>

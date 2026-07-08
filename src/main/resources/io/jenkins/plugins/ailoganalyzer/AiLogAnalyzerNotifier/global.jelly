@@ -1,0 +1,11 @@
+<?jelly escape-by-default='true'?>
+<j:jelly xmlns:j="jelly:core" xmlns:st="jelly:stapler" xmlns:d="jelly:define" xmlns:l="/lib/layout" xmlns:t="/lib/hudson" xmlns:f="/lib/form">
+    <f:section title="AI Log Analyzer (Gameloft AI)">
+        <f:entry title="API Endpoint URL" field="apiEndpointUrl" description="The HTTP POST endpoint for the AI log analyzer API">
+            <f:textbox />
+        </f:entry>
+        <f:entry title="API Key" field="apiKey" description="Bearer token or API Key">
+            <f:password />
+        </f:entry>
+    </f:section>
+</j:jelly>

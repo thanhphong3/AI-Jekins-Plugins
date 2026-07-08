@@ -1,0 +1,49 @@
+# Target directory (Maven build output)
+target/
+
+# Jenkins development work directory
+work/
+
+# Java / Maven temporary files
+*.class
+*.log
+*.jar
+*.war
+*.ear
+*.tar.gz
+*.zip
+
+# Maven release plugin
+pom.xml.tag
+pom.xml.releaseBackup
+pom.xml.next
+pom.xml.note
+release.properties
+dependency-reduced-pom.xml
+buildNumber.properties
+.mvn/timing.properties
+.mvn/wrapper/maven-wrapper.jar
+
+# IntelliJ IDEA
+.idea/
+*.iml
+*.ipr
+*.iws
+out/
+
+# Eclipse
+.metadata/
+.classpath
+.project
+.settings/
+*.tmp
+*.bak
+*.swp
+*~
+
+# VS Code
+.vscode/
+
+# OS specific files
+Thumbs.db
+.DS_Store

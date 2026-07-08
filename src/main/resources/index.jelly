@@ -1,0 +1,4 @@
+<?jelly escape-by-default='true'?>
+<div>
+    AI Log Analyzer automatically extracts the tail of failed build logs and runs them through Gameloft AI API to diagnose compilation/runtime errors.
+</div>
