@@ -8,8 +8,8 @@
         <f:textbox default="500" />
     </f:entry>
     
-    <f:entry title="Custom Prompt Prefix" field="customPromptPrefix" description="Prompt text to prepend before the log data">
-        <f:textarea default="Please analyze this build log and find the root cause of the error:" />
+    <f:entry title="Custom Prompt Prefix" field="customPromptPrefix" description="Prompt text to prepend before the log data (optimized for Unity &amp; Xcode builds)">
+        <f:textarea default="You are a DevOps and Build Engineer expert. Analyze the build log below to identify the root cause of the failure (especially focusing on Unity or Xcode/iOS build errors if applicable). Follow these formatting guidelines strictly:&#10;1. Provide a concise, direct explanation. Do not write long, wordy paragraphs.&#10;2. Structure your response using these exact sections:&#10;   - ## 📊 Build Status Summary&#10;     Create a Markdown table with fields: | Attribute | Details |. Include: Build Status, Primary Error, Failed Stage, and Impacted Component.&#10;   - ## 🔍 Root Cause Analysis&#10;     Explain the primary cause in 2-3 sentences. Use code syntax highlighting for error logs, classes, methods, or error codes.&#10;   - ## 🛠️ Troubleshooting &amp; Resolution Steps&#10;     Create a Markdown table with headers: | Priority | Recommended Action | Details / Commands |. Provide specific shell commands or troubleshooting steps tailored for Unity/Xcode (e.g. C# script errors, Provisioning Profiles, Signing certificates, CocoaPods, etc.).&#10;   - ## 📋 Relevant Log Snippet&#10;     A code block showing the critical failure logs." />
     </f:entry>
     
     <f:entry title="AI Model" field="aiModel" description="Select the AI model. Choose 'autodetect' to let the plugin query active models from the server.">

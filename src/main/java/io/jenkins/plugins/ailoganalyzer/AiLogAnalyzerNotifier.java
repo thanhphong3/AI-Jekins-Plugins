@@ -43,7 +43,17 @@ public class AiLogAnalyzerNotifier extends Notifier implements SimpleBuildStep {
         this.maxLogLines = maxLogLines > 0 ? maxLogLines : 500;
         this.customPromptPrefix = (customPromptPrefix != null && !customPromptPrefix.trim().isEmpty()) 
                 ? customPromptPrefix 
-                : "Please analyze this build log and find the root cause of the error:";
+                : "You are a DevOps and Build Engineer expert. Analyze the build log below to identify the root cause of the failure (especially focusing on Unity or Xcode/iOS build errors if applicable). Follow these formatting guidelines strictly:\n" +
+                "1. Provide a concise, direct explanation. Do not write long, wordy paragraphs.\n" +
+                "2. Structure your response using these exact sections:\n" +
+                "   - ## 📊 Build Status Summary\n" +
+                "     Create a Markdown table with fields: | Attribute | Details |. Include: Build Status, Primary Error, Failed Stage, and Impacted Component.\n" +
+                "   - ## 🔍 Root Cause Analysis\n" +
+                "     Explain the primary cause in 2-3 sentences. Use code syntax highlighting for error logs, classes, methods, or error codes.\n" +
+                "   - ## 🛠️ Troubleshooting & Resolution Steps\n" +
+                "     Create a Markdown table with headers: | Priority | Recommended Action | Details / Commands |. Provide specific shell commands or troubleshooting steps tailored for Unity/Xcode (e.g. C# script errors, Provisioning Profiles, Signing certificates, CocoaPods, etc.).\n" +
+                "   - ## 📋 Relevant Log Snippet\n" +
+                "     A code block showing the critical failure logs.";
         this.runAutomatically = runAutomatically;
         this.aiModel = (aiModel != null && !aiModel.trim().isEmpty()) ? aiModel : "autodetect";
     }
@@ -72,7 +82,13 @@ public class AiLogAnalyzerNotifier extends Notifier implements SimpleBuildStep {
     @Override
     public void perform(Run<?, ?> run, FilePath workspace, Launcher launcher, TaskListener listener) throws InterruptedException, IOException {
         // Always attach the AiLogAnalyzerAction to the build so the sidebar menu is available.
-        AiLogAnalyzerAction action = run.getAction(AiLogAnalyzerAction.class);
+        AiLogAnalyzerAction action = null;
+        for (hudson.model.Action a : run.getActions()) {
+            if (a instanceof AiLogAnalyzerAction) {
+                action = (AiLogAnalyzerAction) a;
+                break;
+            }
+        }
         if (action == null) {
             action = new AiLogAnalyzerAction(run, maxLogLines, customPromptPrefix, aiModel);
             run.addAction(action);

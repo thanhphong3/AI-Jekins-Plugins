@@ -39,7 +39,17 @@ public class AiLogAnalyzerAction implements RunAction2 {
     public AiLogAnalyzerAction(String analysisResult) {
         this.analysisResult = analysisResult;
         this.maxLogLines = 500;
-        this.customPromptPrefix = "Please analyze this build log and find the root cause of the error:";
+        this.customPromptPrefix = "You are a DevOps and Build Engineer expert. Analyze the build log below to identify the root cause of the failure (especially focusing on Unity or Xcode/iOS build errors if applicable). Follow these formatting guidelines strictly:\n" +
+                "1. Provide a concise, direct explanation. Do not write long, wordy paragraphs.\n" +
+                "2. Structure your response using these exact sections:\n" +
+                "   - ## 📊 Build Status Summary\n" +
+                "     Create a Markdown table with fields: | Attribute | Details |. Include: Build Status, Primary Error, Failed Stage, and Impacted Component.\n" +
+                "   - ## 🔍 Root Cause Analysis\n" +
+                "     Explain the primary cause in 2-3 sentences. Use code syntax highlighting for error logs, classes, methods, or error codes.\n" +
+                "   - ## 🛠️ Troubleshooting & Resolution Steps\n" +
+                "     Create a Markdown table with headers: | Priority | Recommended Action | Details / Commands |. Provide specific shell commands or troubleshooting steps tailored for Unity/Xcode (e.g. C# script errors, Provisioning Profiles, Signing certificates, CocoaPods, etc.).\n" +
+                "   - ## 📋 Relevant Log Snippet\n" +
+                "     A code block showing the critical failure logs.";
         this.aiModel = "autodetect";
     }
 
@@ -58,7 +68,17 @@ public class AiLogAnalyzerAction implements RunAction2 {
     public String getCustomPromptPrefix() {
         return (customPromptPrefix != null && !customPromptPrefix.trim().isEmpty()) 
                 ? customPromptPrefix 
-                : "Please analyze this build log and find the root cause of the error:";
+                : "You are a DevOps and Build Engineer expert. Analyze the build log below to identify the root cause of the failure (especially focusing on Unity or Xcode/iOS build errors if applicable). Follow these formatting guidelines strictly:\n" +
+                "1. Provide a concise, direct explanation. Do not write long, wordy paragraphs.\n" +
+                "2. Structure your response using these exact sections:\n" +
+                "   - ## 📊 Build Status Summary\n" +
+                "     Create a Markdown table with fields: | Attribute | Details |. Include: Build Status, Primary Error, Failed Stage, and Impacted Component.\n" +
+                "   - ## 🔍 Root Cause Analysis\n" +
+                "     Explain the primary cause in 2-3 sentences. Use code syntax highlighting for error logs, classes, methods, or error codes.\n" +
+                "   - ## 🛠️ Troubleshooting & Resolution Steps\n" +
+                "     Create a Markdown table with headers: | Priority | Recommended Action | Details / Commands |. Provide specific shell commands or troubleshooting steps tailored for Unity/Xcode (e.g. C# script errors, Provisioning Profiles, Signing certificates, CocoaPods, etc.).\n" +
+                "   - ## 📋 Relevant Log Snippet\n" +
+                "     A code block showing the critical failure logs.";
     }
 
     public String getAiModel() {
@@ -106,13 +126,26 @@ public class AiLogAnalyzerAction implements RunAction2 {
         }
 
         int linesToExtract = getMaxLogLines();
+        int windowSize = Math.max(2500, linesToExtract);
         if (logger != null) {
-            logger.println("[AI Log Analyzer] Extracting last " + linesToExtract + " lines of log...");
+            logger.println("[AI Log Analyzer] Reading last " + windowSize + " lines of log for smart filtering...");
         }
 
-        // Get the last N lines of the log
-        List<String> logLines = run.getLog(linesToExtract);
-        String logContent = String.join("\n", logLines);
+        // Get the log lines from Jenkins run
+        List<String> rawLogLines = run.getLog(windowSize);
+        if (logger != null) {
+            logger.println("[AI Log Analyzer] Filtering log lines to find high-signal build errors...");
+        }
+
+        // Filter log content using LogFilter
+        String logContent = LogFilter.filterLog(rawLogLines, 3, 5, linesToExtract);
+
+        if (logger != null) {
+            int originalSize = rawLogLines.size();
+            int filteredSize = logContent.split("\n").length;
+            logger.println("[AI Log Analyzer] Smart filtering complete. Reduced log size from " + 
+                originalSize + " lines to " + filteredSize + " lines.");
+        }
 
         String modelsStr = getAiModel();
         List<String> modelsList = new ArrayList<>();
@@ -255,12 +288,59 @@ public class AiLogAnalyzerAction implements RunAction2 {
 
         net.sf.json.JSONObject json = new net.sf.json.JSONObject();
         try {
+            String selectedModel = req.getParameter("model");
+            if (selectedModel != null && !selectedModel.trim().isEmpty()) {
+                this.aiModel = selectedModel.trim();
+            }
             String result = executeAnalysis(null);
             this.analysisResult = result;
+            
+            // Check if this action is already persisted on the run.
+            // If not, add it so the result is saved permanently.
+            boolean isPersisted = false;
+            for (hudson.model.Action action : run.getActions()) {
+                if (action == this) {
+                    isPersisted = true;
+                    break;
+                }
+            }
+            if (!isPersisted) {
+                run.addAction(this);
+            }
             run.save();
 
             json.put("status", "success");
             json.put("result", result);
+        } catch (Exception e) {
+            json.put("status", "error");
+            json.put("message", e.getMessage());
+        }
+        rsp.getWriter().write(json.toString());
+    }
+
+    @POST
+    public void doGetAvailableModels(StaplerRequest req, StaplerResponse rsp) throws IOException, ServletException {
+        run.checkPermission(Run.UPDATE);
+        rsp.setContentType("application/json");
+
+        net.sf.json.JSONObject json = new net.sf.json.JSONObject();
+        try {
+            AiLogAnalyzerNotifier.DescriptorImpl descriptor = ExtensionList.lookupSingleton(AiLogAnalyzerNotifier.DescriptorImpl.class);
+            String endpointUrl = descriptor.getApiEndpointUrl();
+            Secret apiKey = descriptor.getApiKey();
+
+            List<String> models = new ArrayList<>();
+            if (endpointUrl != null && !endpointUrl.isEmpty()) {
+                models = autodetectModelsStatic(endpointUrl, apiKey, null);
+            }
+            
+            net.sf.json.JSONArray modelsArray = new net.sf.json.JSONArray();
+            for (String m : models) {
+                modelsArray.add(m);
+            }
+
+            json.put("status", "success");
+            json.put("models", modelsArray);
         } catch (Exception e) {
             json.put("status", "error");
             json.put("message", e.getMessage());
