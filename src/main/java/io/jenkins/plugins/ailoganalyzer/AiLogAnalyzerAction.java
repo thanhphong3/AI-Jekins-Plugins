@@ -3,6 +3,7 @@ package io.jenkins.plugins.ailoganalyzer;
 import hudson.ExtensionList;
 import hudson.model.Run;
 import hudson.util.Secret;
+import hudson.model.User;
 import jenkins.model.RunAction2;
 import org.kohsuke.stapler.StaplerRequest;
 import org.kohsuke.stapler.StaplerResponse;
@@ -30,6 +31,10 @@ public class AiLogAnalyzerAction implements RunAction2 {
     private String aiModel;
     private transient volatile Thread activeThread;
     private transient volatile HttpURLConnection activeConnection;
+    private transient volatile boolean isAnalyzing;
+    private String initiatorId;
+    private String translationVn;
+    private transient String lastError;
 
     public AiLogAnalyzerAction(Run<?, ?> run, int maxLogLines, String customPromptPrefix, String aiModel) {
         this.run = run;
@@ -87,6 +92,35 @@ public class AiLogAnalyzerAction implements RunAction2 {
         return (aiModel != null && !aiModel.trim().isEmpty()) 
                 ? aiModel 
                 : "autodetect";
+    }
+
+    public boolean isAnalyzing() {
+        return isAnalyzing || (activeThread != null && activeThread.isAlive());
+    }
+
+    public String getInitiatorId() {
+        return initiatorId;
+    }
+
+    public String getTranslationVn() {
+        return translationVn;
+    }
+
+    public void setTranslationVn(String translationVn) {
+        this.translationVn = translationVn;
+    }
+
+    public String getLastError() {
+        return lastError;
+    }
+
+    public String getCurrentUserId() {
+        hudson.model.User currentUser = hudson.model.User.current();
+        return currentUser != null ? currentUser.getId() : "anonymous";
+    }
+
+    public AiLogAnalyzerNotifier.DescriptorImpl getDescriptor() {
+        return hudson.ExtensionList.lookupSingleton(AiLogAnalyzerNotifier.DescriptorImpl.class);
     }
 
     @Override
@@ -300,48 +334,71 @@ public class AiLogAnalyzerAction implements RunAction2 {
         rsp.setContentType("application/json");
 
         net.sf.json.JSONObject json = new net.sf.json.JSONObject();
+        
         synchronized (this) {
-            this.activeThread = Thread.currentThread();
-        }
-        try {
-            String selectedModel = req.getParameter("model");
-            if (selectedModel != null && !selectedModel.trim().isEmpty()) {
-                this.aiModel = selectedModel.trim();
+            if (isAnalyzing()) {
+                json.put("status", "error");
+                json.put("message", "Analysis is already running.");
+                rsp.getWriter().write(json.toString());
+                return;
             }
-            String result = executeAnalysis(null);
-            this.analysisResult = result;
-            
-            // Check if this action is already persisted on the run.
-            // If not, add it so the result is saved permanently.
-            boolean isPersisted = false;
-            for (hudson.model.Action action : run.getActions()) {
-                if (action == this) {
-                    isPersisted = true;
-                    break;
+        }
+
+        final String selectedModel = req.getParameter("model");
+        hudson.model.User currentUser = hudson.model.User.current();
+        final String currentUserId = currentUser != null ? currentUser.getId() : "anonymous";
+
+        this.initiatorId = currentUserId;
+        this.isAnalyzing = true;
+        this.lastError = null;
+        this.translationVn = null; // Reset translation when re-running analysis
+
+        Thread thread = new Thread(new Runnable() {
+            @Override
+            public void run() {
+                try {
+                    if (selectedModel != null && !selectedModel.trim().isEmpty()) {
+                        AiLogAnalyzerAction.this.aiModel = selectedModel.trim();
+                    }
+                    String result = executeAnalysis(null);
+                    AiLogAnalyzerAction.this.analysisResult = result;
+
+                    // Check if this action is already persisted on the run
+                    boolean isPersisted = false;
+                    for (hudson.model.Action action : run.getActions()) {
+                        if (action == AiLogAnalyzerAction.this) {
+                            isPersisted = true;
+                            break;
+                        }
+                    }
+                    if (!isPersisted) {
+                        run.addAction(AiLogAnalyzerAction.this);
+                    }
+                    run.save();
+                } catch (Exception e) {
+                    if (Thread.currentThread().isInterrupted()) {
+                        AiLogAnalyzerAction.this.lastError = "Analysis stopped by user.";
+                    } else {
+                        AiLogAnalyzerAction.this.lastError = e.getMessage();
+                    }
+                } finally {
+                    synchronized (AiLogAnalyzerAction.this) {
+                        AiLogAnalyzerAction.this.activeThread = null;
+                        AiLogAnalyzerAction.this.activeConnection = null;
+                        AiLogAnalyzerAction.this.isAnalyzing = false;
+                        AiLogAnalyzerAction.this.initiatorId = null;
+                    }
                 }
             }
-            if (!isPersisted) {
-                run.addAction(this);
-            }
-            run.save();
+        }, "AI-Log-Analyzer-Thread-" + run.getExternalizableId());
 
-            json.put("status", "success");
-            json.put("result", result);
-        } catch (Exception e) {
-            json.put("status", "error");
-            if (Thread.currentThread().isInterrupted()) {
-                json.put("message", "Analysis stopped by user.");
-            } else {
-                json.put("message", e.getMessage());
-            }
-        } finally {
-            synchronized (this) {
-                this.activeThread = null;
-                this.activeConnection = null;
-                // Clear interrupted status of thread before returning to pool
-                Thread.interrupted();
-            }
+        synchronized (this) {
+            this.activeThread = thread;
         }
+        thread.start();
+
+        json.put("status", "success");
+        json.put("message", "Analysis started in background.");
         rsp.getWriter().write(json.toString());
     }
 
@@ -367,6 +424,8 @@ public class AiLogAnalyzerAction implements RunAction2 {
             }
             this.activeThread = null;
             this.activeConnection = null;
+            this.isAnalyzing = false;
+            this.initiatorId = null;
         }
 
         if (stopped) {
@@ -377,6 +436,153 @@ public class AiLogAnalyzerAction implements RunAction2 {
             json.put("message", "No active analysis to stop.");
         }
         rsp.getWriter().write(json.toString());
+    }
+
+    public void doGetStatus(StaplerRequest req, StaplerResponse rsp) throws IOException, ServletException {
+        run.checkPermission(hudson.model.Item.READ);
+        rsp.setContentType("application/json");
+
+        net.sf.json.JSONObject json = new net.sf.json.JSONObject();
+        json.put("isAnalyzing", isAnalyzing());
+        json.put("initiatorId", initiatorId != null ? initiatorId : "");
+        json.put("currentUserId", getCurrentUserId());
+        json.put("analysisResult", analysisResult != null ? analysisResult : "");
+        json.put("lastError", lastError != null ? lastError : "");
+        rsp.getWriter().write(json.toString());
+    }
+
+    @POST
+    public void doTranslate(StaplerRequest req, StaplerResponse rsp) throws IOException, ServletException {
+        run.checkPermission(Run.UPDATE);
+        rsp.setContentType("application/json");
+
+        net.sf.json.JSONObject json = new net.sf.json.JSONObject();
+        try {
+            String targetLang = req.getParameter("lang");
+            if (targetLang == null) {
+                targetLang = "vn";
+            }
+
+            if (targetLang.equalsIgnoreCase("en")) {
+                json.put("status", "success");
+                json.put("result", this.analysisResult);
+            } else {
+                if (this.translationVn == null || this.translationVn.trim().isEmpty()) {
+                    if (this.analysisResult == null || this.analysisResult.trim().isEmpty()) {
+                        throw new IOException("No analysis result to translate.");
+                    }
+                    String translated = executeTranslation(this.analysisResult, "vn");
+                    this.translationVn = translated;
+                    run.save();
+                }
+                json.put("status", "success");
+                json.put("result", this.translationVn);
+            }
+        } catch (Exception e) {
+            json.put("status", "error");
+            json.put("message", e.getMessage());
+        }
+        rsp.getWriter().write(json.toString());
+    }
+
+    @POST
+    public void doClearError(StaplerRequest req, StaplerResponse rsp) throws IOException, ServletException {
+        run.checkPermission(Run.UPDATE);
+        this.lastError = null;
+        rsp.setContentType("application/json");
+        rsp.getWriter().write("{\"status\":\"success\"}");
+    }
+
+    public String executeTranslation(String text, String targetLang) throws IOException {
+        AiLogAnalyzerNotifier.DescriptorImpl descriptor = ExtensionList.lookupSingleton(AiLogAnalyzerNotifier.DescriptorImpl.class);
+        String endpointUrl = descriptor.getApiEndpointUrl();
+        Secret apiKey = descriptor.getApiKey();
+
+        if (endpointUrl == null || endpointUrl.isEmpty()) {
+            throw new IOException("API Endpoint URL is not configured globally.");
+        }
+
+        String modelToUse = getAiModel();
+        if (modelToUse == null || modelToUse.equals("autodetect")) {
+            List<String> detected = autodetectModelsStatic(endpointUrl, apiKey, null);
+            if (!detected.isEmpty()) {
+                modelToUse = detected.get(0);
+            } else {
+                modelToUse = "gemini-1.5-pro";
+            }
+        }
+
+        String prompt = "You are a professional translator. Translate the following Markdown text into Vietnamese. Keep the exact Markdown layout, headings, tables, code blocks, syntax, and structure. Do not translate code blocks or log snippets, but translate headings, descriptions, and details. Do not omit any details. Only return the translated Markdown text without any introduction or markdown wrapping blocks.";
+        
+        org.json.JSONObject payload = new org.json.JSONObject();
+        payload.put("model", modelToUse);
+
+        org.json.JSONArray messages = new org.json.JSONArray();
+        org.json.JSONObject systemMessage = new org.json.JSONObject();
+        systemMessage.put("role", "system");
+        systemMessage.put("content", prompt);
+        messages.put(systemMessage);
+
+        org.json.JSONObject userMessage = new org.json.JSONObject();
+        userMessage.put("role", "user");
+        userMessage.put("content", text);
+        messages.put(userMessage);
+
+        payload.put("messages", messages);
+
+        URL url = new URL(endpointUrl);
+        HttpURLConnection conn = (HttpURLConnection) url.openConnection();
+        conn.setRequestMethod("POST");
+        conn.setRequestProperty("Content-Type", "application/json");
+        conn.setRequestProperty("Accept", "application/json");
+        if (apiKey != null && !apiKey.getPlainText().isEmpty()) {
+            conn.setRequestProperty("Authorization", "Bearer " + apiKey.getPlainText());
+            conn.setRequestProperty("x-api-key", apiKey.getPlainText());
+        }
+        conn.setConnectTimeout(30000);
+        conn.setReadTimeout(30000);
+        conn.setDoOutput(true);
+
+        try (OutputStream os = conn.getOutputStream()) {
+            byte[] input = payload.toString().getBytes(StandardCharsets.UTF_8);
+            os.write(input, 0, input.length);
+        }
+
+        int responseCode = conn.getResponseCode();
+        if (responseCode >= 200 && responseCode < 300) {
+            StringBuilder responseBuilder = new StringBuilder();
+            try (BufferedReader br = new BufferedReader(new InputStreamReader(conn.getInputStream(), StandardCharsets.UTF_8))) {
+                String responseLine;
+                while ((responseLine = br.readLine()) != null) {
+                    responseBuilder.append(responseLine.trim());
+                }
+            }
+            
+            String rawResponse = responseBuilder.toString();
+            try {
+                org.json.JSONObject jsonResponse = new org.json.JSONObject(rawResponse);
+                if (jsonResponse.has("choices")) {
+                    org.json.JSONArray choices = jsonResponse.getJSONArray("choices");
+                    if (choices.length() > 0) {
+                        org.json.JSONObject firstChoice = choices.getJSONObject(0);
+                        if (firstChoice.has("message")) {
+                            org.json.JSONObject msgObj = firstChoice.getJSONObject("message");
+                            if (msgObj.has("content")) {
+                                return msgObj.getString("content");
+                            }
+                        }
+                    }
+                }
+                if (jsonResponse.has("analysis")) {
+                    return jsonResponse.getString("analysis");
+                }
+                return rawResponse;
+            } catch (Exception e) {
+                return rawResponse;
+            }
+        } else {
+            throw new IOException("Translation API request failed with HTTP " + responseCode);
+        }
     }
 
     @POST

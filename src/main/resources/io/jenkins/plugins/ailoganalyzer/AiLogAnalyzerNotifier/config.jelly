@@ -12,68 +12,7 @@
         <f:textarea default="You are a DevOps and Build Engineer expert. Analyze the build log below to identify the root cause of the failure (especially focusing on Unity or Xcode/iOS build errors if applicable). Follow these formatting guidelines strictly:&#10;1. Provide a concise, direct explanation. Do not write long, wordy paragraphs.&#10;2. Structure your response using these exact sections:&#10;   - ## 📊 Build Status Summary&#10;     Create a Markdown table with fields: | Attribute | Details |. Include: Build Status, Primary Error, Failed Stage, and Impacted Component.&#10;   - ## 🔍 Root Cause Analysis&#10;     Explain the primary cause in 2-3 sentences. Use code syntax highlighting for error logs, classes, methods, or error codes.&#10;   - ## 🛠️ Troubleshooting &amp; Resolution Steps&#10;     Create a Markdown table with headers: | Priority | Recommended Action | Details / Commands |. Provide specific shell commands or troubleshooting steps tailored for Unity/Xcode (e.g. C# script errors, Provisioning Profiles, Signing certificates, CocoaPods, etc.).&#10;   - ## 📋 Relevant Log Snippet&#10;     A code block showing the critical failure logs." />
     </f:entry>
     
-    <f:entry title="AI Model" field="aiModel" description="Select the AI model. Choose 'autodetect' to let the plugin query active models from the server.">
+    <f:entry title="AI Model" field="aiModel" description="Select the AI model. Choice list is populated from models cached in Jenkins global settings.">
         <f:select id="aiModelSelect" style="width: 100%; max-width: 400px;" />
-    </f:entry>
-    
-    <f:entry>
-        <div style="margin-top: 5px;">
-            <input type="button" value="Load Models from Server" class="jenkins-button" id="btnLoadModels" />
-            <span id="loadModelsStatus" style="margin-left: 10px; font-weight: bold; font-size: 13px;"></span>
-        </div>
-        <script>
-            (function() {
-                var descriptor = <st:bind value="${descriptor}"/>;
-                var btn = document.getElementById('btnLoadModels');
-                if (btn) {
-                    btn.onclick = function() {
-                        var statusSpan = document.getElementById('loadModelsStatus');
-                        statusSpan.style.color = "blue";
-                        statusSpan.textContent = "Loading models...";
-                        
-                        descriptor.getAvailableModels(function(t) {
-                            var response = t.responseObject();
-                            if (response &amp;&amp; response.length > 0) {
-                                var select = document.querySelector('select[name="_.aiModel"]');
-                                if (!select) {
-                                    select = document.getElementById('aiModelSelect');
-                                }
-                                
-                                if (select) {
-                                    var currentVal = select.value;
-                                    select.innerHTML = '';
-                                    
-                                    var optAuto = document.createElement('option');
-                                    optAuto.value = 'autodetect';
-                                    optAuto.textContent = 'autodetect (Smart Fallback)';
-                                    select.appendChild(optAuto);
-                                    
-                                    for (var i = 0; i &lt; response.length; i++) {
-                                        var opt = document.createElement('option');
-                                        opt.value = response[i];
-                                        opt.textContent = response[i];
-                                        select.appendChild(opt);
-                                    }
-                                    
-                                    select.value = currentVal;
-                                    if (select.value !== currentVal) {
-                                        select.value = 'autodetect';
-                                    }
-                                    
-                                    statusSpan.style.color = "green";
-                                    statusSpan.textContent = "Loaded " + response.length + " models successfully.";
-                                } else {
-                                    statusSpan.style.color = "red";
-                                    statusSpan.textContent = "Error: Dropdown element not found.";
-                                }
-                            } else {
-                                statusSpan.style.color = "red";
-                                statusSpan.textContent = "Failed to load models. Make sure Global Endpoint and API Key are configured.";
-                            }
-                        });
-                    };
-                }
-            })();
-        </script>
     </f:entry>
 </j:jelly>

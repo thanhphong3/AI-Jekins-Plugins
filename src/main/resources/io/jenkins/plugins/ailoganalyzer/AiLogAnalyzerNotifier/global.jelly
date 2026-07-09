@@ -7,5 +7,271 @@
         <f:entry title="API Key" field="apiKey" description="Bearer token or API Key">
             <f:password />
         </f:entry>
+        
+        <f:entry title="Default AI Model" field="defaultAiModel" description="Select the default AI model.">
+            <f:select id="defaultAiModelSelect" style="width: 100%; max-width: 400px;" />
+        </f:entry>
+        
+        <f:entry>
+            <div style="margin-top: 5px;">
+                <button type="button" class="jenkins-button" id="btnGlobalLoadModels">Load Models from Server</button>
+                <span id="globalLoadModelsStatus" style="margin-left: 10px; font-weight: bold; font-size: 13px;"></span>
+            </div>
+            <script>
+                (function() {
+                    var descriptor = <st:bind value="${descriptor}"/>;
+                    var btn = document.getElementById('btnGlobalLoadModels');
+                    if (btn) {
+                        btn.onclick = function() {
+                            var statusSpan = document.getElementById('globalLoadModelsStatus');
+                            statusSpan.style.color = "blue";
+                            statusSpan.textContent = "Loading models...";
+                            
+                            var endpointInput = document.querySelector('input[name="_.apiEndpointUrl"]');
+                            var apiKeyInput = document.querySelector('input[name="_.apiKey"]');
+                            
+                            var endpointVal = endpointInput ? endpointInput.value : '';
+                            var apiKeyVal = apiKeyInput ? apiKeyInput.value : '';
+                            
+                            descriptor.fetchAndCacheModels(endpointVal, apiKeyVal, function(t) {
+                                var response = t.responseObject();
+                                if (response &amp;&amp; response.length > 0) {
+                                    var select = document.querySelector('select[name="_.defaultAiModel"]');
+                                    if (!select) {
+                                        select = document.getElementById('defaultAiModelSelect');
+                                    }
+                                    
+                                    if (select) {
+                                        var currentVal = select.value;
+                                        select.innerHTML = '';
+                                        
+                                        var optAuto = document.createElement('option');
+                                        optAuto.value = 'autodetect';
+                                        optAuto.textContent = 'autodetect (Smart Fallback)';
+                                        select.appendChild(optAuto);
+                                        
+                                        for (var i = 0; i &lt; response.length; i++) {
+                                            var opt = document.createElement('option');
+                                            opt.value = response[i];
+                                            opt.textContent = response[i];
+                                            select.appendChild(opt);
+                                        }
+                                        
+                                        select.value = currentVal;
+                                        if (select.value !== currentVal) {
+                                            select.value = 'autodetect';
+                                        }
+                                        
+                                        statusSpan.style.color = "green";
+                                        statusSpan.textContent = "Loaded " + response.length + " models and saved to cache.";
+                                    } else {
+                                        statusSpan.style.color = "red";
+                                        statusSpan.textContent = "Error: Dropdown element not found.";
+                                    }
+                                } else {
+                                    statusSpan.style.color = "red";
+                                    statusSpan.textContent = "Failed to load models. Verify API settings.";
+                                }
+                            });
+                        };
+                    }
+                })();
+            </script>
+        </f:entry>
+
+        <f:entry title="Auto-Trigger AI Analysis Jobs" description="List of jobs that will automatically trigger AI log analysis upon build failure.">
+            <div id="auto-trigger-jobs-wrapper" style="font-family: -apple-system, BlinkMacSystemFont, sans-serif;">
+                <div id="auto-trigger-jobs-container" style="display: flex; flex-direction: column; gap: 8px; margin-bottom: 12px; max-width: 500px;">
+                    <!-- Job rows will be dynamically populated here by JS -->
+                </div>
+                <div>
+                    <button type="button" class="jenkins-button" id="btn-add-trigger-job" style="display: inline-flex; align-items: center; gap: 6px;">
+                        ➕ Add Job
+                    </button>
+                </div>
+                <input type="hidden" name="autoTriggerJobs" id="autoTriggerJobsInput" value="${descriptor.autoTriggerJobsJson}" />
+            </div>
+
+            <style>
+                .job-trigger-row {
+                    display: flex;
+                    align-items: center;
+                    gap: 12px;
+                    animation: fadeIn 0.2s ease;
+                }
+                .searchable-dropdown-wrapper {
+                    position: relative;
+                    flex-grow: 1;
+                }
+                .job-options-list {
+                    display: none;
+                    position: absolute;
+                    top: 100%;
+                    left: 0;
+                    right: 0;
+                    max-height: 200px;
+                    overflow-y: auto;
+                    z-index: 1000;
+                    background: #ffffff;
+                    border: 1px solid #ccc;
+                    box-shadow: 0 4px 6px rgba(0,0,0,0.15);
+                    border-radius: 4px;
+                    padding: 4px 0;
+                }
+                .job-option-item {
+                    padding: 8px 12px;
+                    cursor: pointer;
+                    font-size: 13px;
+                    color: #333;
+                    transition: background 0.15s;
+                }
+                .job-option-item:hover {
+                    background-color: #f3f4f6;
+                }
+                .btn-remove-job {
+                    background-color: #ef4444 !important;
+                    color: white !important;
+                    border: none !important;
+                    padding: 6px 12px !important;
+                    border-radius: 4px !important;
+                    cursor: pointer !important;
+                    font-size: 13px !important;
+                    font-weight: 500 !important;
+                    transition: background 0.15s !important;
+                }
+                .btn-remove-job:hover {
+                    background-color: #dc2626 !important;
+                }
+                @keyframes fadeIn {
+                    from { opacity: 0; transform: translateY(-4px); }
+                    to { opacity: 1; transform: translateY(0); }
+                }
+            </style>
+
+            <script>
+                (function() {
+                    var descriptor = <st:bind value="${descriptor}"/>;
+                    var container = document.getElementById('auto-trigger-jobs-container');
+                    var btnAdd = document.getElementById('btn-add-trigger-job');
+                    var hiddenInput = document.getElementById('autoTriggerJobsInput');
+                    
+                    var allJobs = [];
+                    var selectedJobs = [];
+                    
+                    try {
+                        selectedJobs = JSON.parse(hiddenInput.value || "[]");
+                    } catch (e) {
+                        selectedJobs = [];
+                    }
+                    
+                    // Load all jobs from Jenkins via Descriptor method
+                    descriptor.getAllJobNames(function(t) {
+                        allJobs = t.responseObject() || [];
+                        // Initialize the UI rows
+                        selectedJobs.forEach(function(jobName) {
+                            createJobRow(jobName);
+                        });
+                    });
+                    
+                    btnAdd.onclick = function() {
+                        createJobRow("");
+                        updateHiddenInput();
+                    };
+                    
+                    function updateHiddenInput() {
+                        var rows = container.querySelectorAll('.job-trigger-row');
+                        var list = [];
+                        rows.forEach(function(row) {
+                            var input = row.querySelector('.job-search-input');
+                            if (input &amp;&amp; input.value.trim() !== "") {
+                                list.push(input.value.trim());
+                            }
+                        });
+                        selectedJobs = list;
+                        hiddenInput.value = JSON.stringify(list);
+                    }
+                    
+                    function createJobRow(initialValue) {
+                        var row = document.createElement('div');
+                        row.className = 'job-trigger-row';
+                        
+                        var wrapper = document.createElement('div');
+                        wrapper.className = 'searchable-dropdown-wrapper';
+                        
+                        var input = document.createElement('input');
+                        input.type = 'text';
+                        input.className = 'job-search-input jenkins-input';
+                        input.placeholder = 'Type to search job...';
+                        input.value = initialValue;
+                        wrapper.appendChild(input);
+                        
+                        var optionsList = document.createElement('div');
+                        optionsList.className = 'job-options-list';
+                        wrapper.appendChild(optionsList);
+                        
+                        var removeBtn = document.createElement('button');
+                        removeBtn.type = 'button';
+                        removeBtn.className = 'btn-remove-job';
+                        removeBtn.textContent = 'Remove';
+                        
+                        row.appendChild(wrapper);
+                        row.appendChild(removeBtn);
+                        container.appendChild(row);
+                        
+                        // Setup dropdown rendering
+                        function renderOptions(filterText) {
+                            optionsList.innerHTML = "";
+                            var filtered = allJobs.filter(function(name) {
+                                return name.toLowerCase().indexOf(filterText.toLowerCase()) !== -1;
+                            });
+                            
+                            if (filtered.length === 0) {
+                                var noResult = document.createElement('div');
+                                noResult.className = 'job-option-item';
+                                noResult.style.color = '#999';
+                                noResult.style.cursor = 'default';
+                                noResult.textContent = 'No matching jobs';
+                                optionsList.appendChild(noResult);
+                            } else {
+                                filtered.forEach(function(name) {
+                                    var item = document.createElement('div');
+                                    item.className = 'job-option-item';
+                                    item.textContent = name;
+                                    item.onclick = function() {
+                                        input.value = name;
+                                        optionsList.style.display = 'none';
+                                        updateHiddenInput();
+                                    };
+                                    optionsList.appendChild(item);
+                                });
+                            }
+                        }
+                        
+                        input.onfocus = function() {
+                            renderOptions(input.value);
+                            optionsList.style.display = 'block';
+                        };
+                        
+                        input.oninput = function() {
+                            renderOptions(input.value);
+                            updateHiddenInput();
+                        };
+                        
+                        // Hide dropdown on blur, but delay so click event goes through first
+                        input.onblur = function() {
+                            setTimeout(function() {
+                                optionsList.style.display = 'none';
+                                updateHiddenInput();
+                            }, 200);
+                        };
+                        
+                        removeBtn.onclick = function() {
+                            row.remove();
+                            updateHiddenInput();
+                        };
+                    }
+                })();
+            </script>
+        </f:entry>
     </f:section>
 </j:jelly>

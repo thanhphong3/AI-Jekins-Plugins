@@ -29,6 +29,9 @@ import java.io.OutputStream;
 import java.net.HttpURLConnection;
 import java.net.URL;
 import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Collections;
 import java.util.List;
 
 public class AiLogAnalyzerNotifier extends Notifier implements SimpleBuildStep {
@@ -132,6 +135,9 @@ public class AiLogAnalyzerNotifier extends Notifier implements SimpleBuildStep {
 
         private String apiEndpointUrl;
         private Secret apiKey;
+        private List<String> cachedModels = new ArrayList<>();
+        private String defaultAiModel = "autodetect";
+        private List<String> autoTriggerJobs = new ArrayList<>();
 
         public DescriptorImpl() {
             load();
@@ -143,6 +149,29 @@ public class AiLogAnalyzerNotifier extends Notifier implements SimpleBuildStep {
 
         public Secret getApiKey() {
             return apiKey;
+        }
+
+        public List<String> getCachedModels() {
+            if (cachedModels == null) {
+                cachedModels = new ArrayList<>();
+            }
+            return cachedModels;
+        }
+
+        public String getDefaultAiModel() {
+            return defaultAiModel != null ? defaultAiModel : "autodetect";
+        }
+
+        public List<String> getAutoTriggerJobs() {
+            if (autoTriggerJobs == null) {
+                autoTriggerJobs = new ArrayList<>();
+            }
+            return autoTriggerJobs;
+        }
+
+        public String getAutoTriggerJobsJson() {
+            org.json.JSONArray arr = new org.json.JSONArray(getAutoTriggerJobs());
+            return arr.toString();
         }
 
         @Override
@@ -159,6 +188,24 @@ public class AiLogAnalyzerNotifier extends Notifier implements SimpleBuildStep {
         public boolean configure(StaplerRequest req, JSONObject json) throws FormException {
             this.apiEndpointUrl = json.getString("apiEndpointUrl");
             this.apiKey = Secret.fromString(json.getString("apiKey"));
+            this.defaultAiModel = json.optString("defaultAiModel", "autodetect");
+
+            String autoTriggerJobsJson = json.optString("autoTriggerJobs");
+            if (autoTriggerJobsJson != null && !autoTriggerJobsJson.isEmpty()) {
+                try {
+                    org.json.JSONArray arr = new org.json.JSONArray(autoTriggerJobsJson);
+                    List<String> jobs = new ArrayList<>();
+                    for (int i = 0; i < arr.length(); i++) {
+                        jobs.add(arr.getString(i));
+                    }
+                    this.autoTriggerJobs = jobs;
+                } catch (Exception e) {
+                    this.autoTriggerJobs = Arrays.asList(autoTriggerJobsJson.split(","));
+                }
+            } else {
+                this.autoTriggerJobs = new ArrayList<>();
+            }
+
             save();
             return super.configure(req, json);
         }
@@ -185,8 +232,51 @@ public class AiLogAnalyzerNotifier extends Notifier implements SimpleBuildStep {
         public ListBoxModel doFillAiModelItems(@QueryParameter String aiModel) {
             ListBoxModel items = new ListBoxModel();
             items.add("autodetect (Smart Fallback)", "autodetect");
+            List<String> cached = getCachedModels();
+            if (cached != null) {
+                for (String m : cached) {
+                    if (!m.equals("autodetect")) {
+                        items.add(m, m);
+                    }
+                }
+            }
             if (aiModel != null && !aiModel.isEmpty() && !aiModel.equals("autodetect")) {
-                items.add(aiModel, aiModel);
+                boolean found = false;
+                for (ListBoxModel.Option opt : items) {
+                    if (opt.value.equals(aiModel)) {
+                        found = true;
+                        break;
+                    }
+                }
+                if (!found) {
+                    items.add(aiModel, aiModel);
+                }
+            }
+            return items;
+        }
+
+        public ListBoxModel doFillDefaultAiModelItems(@QueryParameter String defaultAiModel) {
+            ListBoxModel items = new ListBoxModel();
+            items.add("autodetect (Smart Fallback)", "autodetect");
+            List<String> cached = getCachedModels();
+            if (cached != null) {
+                for (String m : cached) {
+                    if (!m.equals("autodetect")) {
+                        items.add(m, m);
+                    }
+                }
+            }
+            if (defaultAiModel != null && !defaultAiModel.isEmpty() && !defaultAiModel.equals("autodetect")) {
+                boolean found = false;
+                for (ListBoxModel.Option opt : items) {
+                    if (opt.value.equals(defaultAiModel)) {
+                        found = true;
+                        break;
+                    }
+                }
+                if (!found) {
+                    items.add(defaultAiModel, defaultAiModel);
+                }
             }
             return items;
         }
@@ -199,6 +289,30 @@ public class AiLogAnalyzerNotifier extends Notifier implements SimpleBuildStep {
                 return java.util.Collections.emptyList();
             }
             return AiLogAnalyzerAction.autodetectModelsStatic(endpointUrl, apiKey, null);
+        }
+
+        @JavaScriptMethod
+        public List<String> fetchAndCacheModels(String endpointUrl, String apiKeyStr) {
+            Secret keyToUse = Secret.fromString(apiKeyStr);
+            if (apiKeyStr == null || apiKeyStr.isEmpty() || apiKeyStr.equals("********")) {
+                keyToUse = this.apiKey;
+            }
+            List<String> models = AiLogAnalyzerAction.autodetectModelsStatic(endpointUrl, keyToUse, null);
+            if (models != null && !models.isEmpty()) {
+                this.cachedModels = new ArrayList<>(models);
+                save();
+            }
+            return getCachedModels();
+        }
+
+        @JavaScriptMethod
+        public List<String> getAllJobNames() {
+            List<String> names = new ArrayList<>();
+            for (hudson.model.Job<?, ?> job : jenkins.model.Jenkins.get().getAllItems(hudson.model.Job.class)) {
+                names.add(job.getFullName());
+            }
+            Collections.sort(names);
+            return names;
         }
     }
 }
