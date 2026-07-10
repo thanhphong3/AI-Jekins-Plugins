@@ -87,41 +87,19 @@ public class AiLogAnalyzerNotifier extends Notifier implements SimpleBuildStep {
         // Always attach the AiLogAnalyzerAction to the build so the sidebar menu is available.
         AiLogAnalyzerAction action = null;
         for (hudson.model.Action a : run.getActions()) {
-            if (a instanceof AiLogAnalyzerAction) {
+            if (a instanceof AiLogAnalyzerAction && !((AiLogAnalyzerAction) a).isTransient()) {
                 action = (AiLogAnalyzerAction) a;
                 break;
             }
         }
         if (action == null) {
             action = new AiLogAnalyzerAction(run, maxLogLines, customPromptPrefix, aiModel);
+            action.setAutoTrigger(runAutomatically);
             run.addAction(action);
-        }
-
-        // If configured to run automatically, perform the analysis on failure or unstable
-        if (runAutomatically) {
-            Result result = run.getResult();
-            if (result != null && (result == Result.FAILURE || result == Result.UNSTABLE)) {
-                listener.getLogger().println("=====================================================");
-                listener.getLogger().println("[AI Log Analyzer] Analyzing build failure automatically...");
-
-                try {
-                    String analysis = action.executeAnalysis(listener.getLogger());
-                    action.setAnalysisResult(analysis);
-                    run.save();
-
-                    listener.getLogger().println("[AI Log Analyzer] AI Response:");
-                    listener.getLogger().println(analysis);
-                    listener.getLogger().println("=====================================================");
-                } catch (Exception e) {
-                    listener.getLogger().println("[AI Log Analyzer] Exception occurred: " + e.getMessage());
-                    e.printStackTrace(listener.getLogger());
-                }
-            } else {
-                listener.getLogger().println("[AI Log Analyzer] Build succeeded or status unavailable. Skipping automatic analysis.");
-            }
         } else {
-            listener.getLogger().println("[AI Log Analyzer] Manual analysis configured. The 'AI Log Analysis' button is available in the sidebar.");
+            action.setAutoTrigger(runAutomatically);
         }
+        run.save();
     }
 
     @Override

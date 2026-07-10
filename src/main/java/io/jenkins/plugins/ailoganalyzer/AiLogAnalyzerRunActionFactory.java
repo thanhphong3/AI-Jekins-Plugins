@@ -21,8 +21,11 @@ public class AiLogAnalyzerRunActionFactory extends TransientActionFactory<Run> {
         boolean hasPersisted = false;
         for (Action action : target.getActions()) {
             if (action instanceof AiLogAnalyzerAction) {
-                hasPersisted = true;
-                break;
+                AiLogAnalyzerAction a = (AiLogAnalyzerAction) action;
+                if (!a.isTransient()) {
+                    hasPersisted = true;
+                    break;
+                }
             }
         }
 

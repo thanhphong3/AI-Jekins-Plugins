@@ -36,11 +36,28 @@ public class AiLogAnalyzerAction implements RunAction2 {
     private String translationVn;
     private transient String lastError;
 
+    private transient boolean isTransient = true;
+
+    public boolean isTransient() {
+        return isTransient;
+    }
+
+    private boolean autoTrigger;
+
+    public boolean isAutoTrigger() {
+        return autoTrigger;
+    }
+
+    public void setAutoTrigger(boolean autoTrigger) {
+        this.autoTrigger = autoTrigger;
+    }
+
     public AiLogAnalyzerAction(Run<?, ?> run, int maxLogLines, String customPromptPrefix, String aiModel) {
         this.run = run;
         this.maxLogLines = maxLogLines;
         this.customPromptPrefix = customPromptPrefix;
         this.aiModel = aiModel;
+        this.isTransient = true;
     }
 
     public AiLogAnalyzerAction(String analysisResult) {
@@ -58,6 +75,7 @@ public class AiLogAnalyzerAction implements RunAction2 {
                 "   - ## 📋 Relevant Log Snippet\n" +
                 "     A code block showing the critical failure logs.";
         this.aiModel = "autodetect";
+        this.isTransient = true;
     }
 
     public String getAnalysisResult() {
@@ -89,9 +107,11 @@ public class AiLogAnalyzerAction implements RunAction2 {
     }
 
     public String getAiModel() {
-        return (aiModel != null && !aiModel.trim().isEmpty()) 
-                ? aiModel 
-                : "autodetect";
+        String modelToUse = aiModel;
+        if (modelToUse == null || modelToUse.trim().isEmpty() || modelToUse.equalsIgnoreCase("autodetect")) {
+            modelToUse = getDescriptor().getDefaultAiModel();
+        }
+        return (modelToUse != null && !modelToUse.trim().isEmpty()) ? modelToUse : "autodetect";
     }
 
     public boolean isAnalyzing() {
@@ -141,11 +161,13 @@ public class AiLogAnalyzerAction implements RunAction2 {
     @Override
     public void onAttached(Run<?, ?> r) {
         this.run = r;
+        this.isTransient = false;
     }
 
     @Override
     public void onLoad(Run<?, ?> r) {
         this.run = r;
+        this.isTransient = false;
     }
 
     public Run<?, ?> getRun() {
@@ -328,30 +350,32 @@ public class AiLogAnalyzerAction implements RunAction2 {
         throw new IOException("All configured AI models failed. Last error: " + (lastException != null ? lastException.getMessage() : "Unknown error"));
     }
 
-    @POST
-    public void doStartAnalysis(StaplerRequest req, StaplerResponse rsp) throws IOException, ServletException {
-        run.checkPermission(Run.UPDATE);
-        rsp.setContentType("application/json");
-
-        net.sf.json.JSONObject json = new net.sf.json.JSONObject();
-        
-        synchronized (this) {
-            if (isAnalyzing()) {
-                json.put("status", "error");
-                json.put("message", "Analysis is already running.");
-                rsp.getWriter().write(json.toString());
-                return;
-            }
+    public synchronized boolean startBackgroundAnalysis(final String selectedModel, String initiator) {
+        if (isAnalyzing()) {
+            return false;
         }
 
-        final String selectedModel = req.getParameter("model");
-        hudson.model.User currentUser = hudson.model.User.current();
-        final String currentUserId = currentUser != null ? currentUser.getId() : "anonymous";
-
-        this.initiatorId = currentUserId;
+        this.initiatorId = initiator != null ? initiator : "system";
         this.isAnalyzing = true;
         this.lastError = null;
         this.translationVn = null; // Reset translation when re-running analysis
+
+        // Ensure the action is persisted so subsequent requests (like polling) route to this instance
+        boolean isAlreadyPersisted = false;
+        for (hudson.model.Action action : run.getActions()) {
+            if (action == this) {
+                isAlreadyPersisted = true;
+                break;
+            }
+        }
+        if (!isAlreadyPersisted) {
+            run.addAction(this);
+        }
+        try {
+            run.save();
+        } catch (IOException e) {
+            // ignore
+        }
 
         Thread thread = new Thread(new Runnable() {
             @Override
@@ -362,19 +386,6 @@ public class AiLogAnalyzerAction implements RunAction2 {
                     }
                     String result = executeAnalysis(null);
                     AiLogAnalyzerAction.this.analysisResult = result;
-
-                    // Check if this action is already persisted on the run
-                    boolean isPersisted = false;
-                    for (hudson.model.Action action : run.getActions()) {
-                        if (action == AiLogAnalyzerAction.this) {
-                            isPersisted = true;
-                            break;
-                        }
-                    }
-                    if (!isPersisted) {
-                        run.addAction(AiLogAnalyzerAction.this);
-                    }
-                    run.save();
                 } catch (Exception e) {
                     if (Thread.currentThread().isInterrupted()) {
                         AiLogAnalyzerAction.this.lastError = "Analysis stopped by user.";
@@ -388,17 +399,39 @@ public class AiLogAnalyzerAction implements RunAction2 {
                         AiLogAnalyzerAction.this.isAnalyzing = false;
                         AiLogAnalyzerAction.this.initiatorId = null;
                     }
+                    try {
+                        run.save();
+                    } catch (IOException ioException) {
+                        // ignore
+                    }
                 }
             }
         }, "AI-Log-Analyzer-Thread-" + run.getExternalizableId());
 
-        synchronized (this) {
-            this.activeThread = thread;
-        }
+        this.activeThread = thread;
         thread.start();
+        return true;
+    }
 
-        json.put("status", "success");
-        json.put("message", "Analysis started in background.");
+    @POST
+    public void doStartAnalysis(StaplerRequest req, StaplerResponse rsp) throws IOException, ServletException {
+        run.checkPermission(Run.UPDATE);
+        rsp.setContentType("application/json");
+
+        net.sf.json.JSONObject json = new net.sf.json.JSONObject();
+        
+        final String selectedModel = req.getParameter("model");
+        hudson.model.User currentUser = hudson.model.User.current();
+        final String currentUserId = currentUser != null ? currentUser.getId() : "anonymous";
+
+        boolean started = startBackgroundAnalysis(selectedModel, currentUserId);
+        if (started) {
+            json.put("status", "success");
+            json.put("message", "Analysis started in background.");
+        } else {
+            json.put("status", "error");
+            json.put("message", "Analysis is already running.");
+        }
         rsp.getWriter().write(json.toString());
     }
 

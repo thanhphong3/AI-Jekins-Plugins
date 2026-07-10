@@ -1,0 +1,827 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI Jenkins Log Analyzer - Cơ Chế Hoạt Động</title>
+    <!-- Google Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+    
+    <style>
+        :root {
+            --bg-color: #0b0f19;
+            --card-bg: rgba(22, 28, 45, 0.6);
+            --card-border: rgba(255, 255, 255, 0.08);
+            --text-color: #f3f4f6;
+            --text-muted: #9ca3af;
+            
+            --primary: #3b82f6;
+            --primary-glow: rgba(59, 130, 246, 0.15);
+            --accent: #10b981;
+            --accent-glow: rgba(16, 185, 129, 0.15);
+            --warning: #f59e0b;
+            --danger: #ef4444;
+            --purple: #8b5cf6;
+            
+            --transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            font-family: 'Outfit', sans-serif;
+            background-color: var(--bg-color);
+            color: var(--text-color);
+            line-height: 1.6;
+            overflow-x: hidden;
+            background-image: 
+                radial-gradient(circle at 10% 20%, rgba(59, 130, 246, 0.08) 0%, transparent 40%),
+                radial-gradient(circle at 90% 80%, rgba(139, 92, 246, 0.08) 0%, transparent 40%);
+            background-attachment: fixed;
+        }
+
+        header {
+            padding: 3rem 2rem 2rem;
+            max-width: 1200px;
+            margin: 0 auto;
+            text-align: center;
+            position: relative;
+        }
+
+        .badge {
+            background: linear-gradient(90deg, rgba(59, 130, 246, 0.2), rgba(139, 92, 246, 0.2));
+            border: 1px solid rgba(59, 130, 246, 0.3);
+            color: #93c5fd;
+            padding: 0.4rem 1rem;
+            border-radius: 50px;
+            font-size: 0.85rem;
+            font-weight: 500;
+            display: inline-block;
+            margin-bottom: 1rem;
+            letter-spacing: 0.05em;
+            text-transform: uppercase;
+        }
+
+        h1 {
+            font-size: 2.8rem;
+            font-weight: 800;
+            background: linear-gradient(135deg, #ffffff 30%, #a5b4fc 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            margin-bottom: 0.5rem;
+            letter-spacing: -0.02em;
+        }
+
+        .subtitle {
+            color: var(--text-muted);
+            font-size: 1.15rem;
+            max-width: 600px;
+            margin: 0 auto;
+        }
+
+        main {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 0 2rem 5rem;
+            display: grid;
+            grid-template-columns: 1fr;
+            gap: 3rem;
+        }
+
+        /* Card styles */
+        .card {
+            background: var(--card-bg);
+            border: 1px solid var(--card-border);
+            border-radius: 18px;
+            padding: 2.2rem;
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
+            transition: var(--transition);
+            position: relative;
+            overflow: hidden;
+        }
+
+        .card:hover {
+            border-color: rgba(59, 130, 246, 0.25);
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.4), 0 0 20px rgba(59, 130, 246, 0.05);
+            transform: translateY(-2px);
+        }
+
+        .card::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 4px;
+            background: linear-gradient(90deg, var(--primary), var(--purple));
+            opacity: 0;
+            transition: var(--transition);
+        }
+
+        .card:hover::before {
+            opacity: 1;
+        }
+
+        .card-title {
+            font-size: 1.5rem;
+            font-weight: 700;
+            margin-bottom: 1.5rem;
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+            color: #ffffff;
+        }
+
+        .card-title svg {
+            width: 24px;
+            height: 24px;
+            color: var(--primary);
+        }
+
+        /* Flow Diagram */
+        .flow-container {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 1.5rem;
+            position: relative;
+            margin-top: 1rem;
+        }
+
+        .flow-step {
+            background: rgba(255, 255, 255, 0.02);
+            border: 1px solid rgba(255, 255, 255, 0.05);
+            border-radius: 12px;
+            padding: 1.5rem;
+            text-align: center;
+            position: relative;
+            transition: var(--transition);
+            cursor: pointer;
+        }
+
+        .flow-step:hover {
+            background: rgba(59, 130, 246, 0.04);
+            border-color: rgba(59, 130, 246, 0.3);
+        }
+
+        .flow-step.active {
+            background: var(--primary-glow);
+            border-color: var(--primary);
+            box-shadow: 0 0 15px rgba(59, 130, 246, 0.15);
+        }
+
+        .step-num {
+            width: 32px;
+            height: 32px;
+            border-radius: 50%;
+            background: rgba(255, 255, 255, 0.1);
+            color: #ffffff;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: 700;
+            margin: 0 auto 1rem;
+            font-size: 0.9rem;
+            transition: var(--transition);
+        }
+
+        .flow-step.active .step-num {
+            background: var(--primary);
+            box-shadow: 0 0 10px rgba(59, 130, 246, 0.5);
+        }
+
+        .step-title {
+            font-weight: 600;
+            font-size: 1.05rem;
+            margin-bottom: 0.5rem;
+            color: #ffffff;
+        }
+
+        .step-desc-short {
+            font-size: 0.85rem;
+            color: var(--text-muted);
+        }
+
+        /* Flow Detail Box */
+        .flow-detail-box {
+            background: rgba(10, 15, 28, 0.8);
+            border: 1px solid rgba(255, 255, 255, 0.05);
+            border-radius: 12px;
+            padding: 1.5rem;
+            margin-top: 1.5rem;
+            display: none;
+            animation: fadeIn 0.4s ease forwards;
+        }
+
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        .detail-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+            padding-bottom: 0.75rem;
+            margin-bottom: 1rem;
+        }
+
+        .detail-title {
+            font-weight: 700;
+            font-size: 1.2rem;
+            color: var(--primary);
+        }
+
+        .detail-badge {
+            font-size: 0.75rem;
+            background: rgba(59, 130, 246, 0.1);
+            color: var(--primary);
+            padding: 0.2rem 0.6rem;
+            border-radius: 4px;
+            border: 1px solid rgba(59, 130, 246, 0.2);
+        }
+
+        .detail-content ul {
+            list-style-type: none;
+        }
+
+        .detail-content li {
+            position: relative;
+            padding-left: 1.25rem;
+            margin-bottom: 0.5rem;
+            font-size: 0.95rem;
+        }
+
+        .detail-content li::before {
+            content: '•';
+            position: absolute;
+            left: 0;
+            color: var(--primary);
+            font-size: 1.2rem;
+            line-height: 1;
+        }
+
+        /* Code Source Map Links */
+        .source-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+            gap: 1.5rem;
+        }
+
+        .source-card {
+            background: rgba(255, 255, 255, 0.015);
+            border: 1px solid rgba(255, 255, 255, 0.04);
+            border-radius: 12px;
+            padding: 1.5rem;
+            transition: var(--transition);
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+        }
+
+        .source-card:hover {
+            background: rgba(255, 255, 255, 0.03);
+            border-color: rgba(255, 255, 255, 0.08);
+        }
+
+        .source-name {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 1.05rem;
+            font-weight: 600;
+            color: #60a5fa;
+            margin-bottom: 0.5rem;
+        }
+
+        .source-role {
+            font-size: 0.9rem;
+            color: var(--text-muted);
+            margin-bottom: 1.5rem;
+        }
+
+        .source-btn {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.5rem;
+            font-size: 0.85rem;
+            font-weight: 600;
+            color: var(--text-color);
+            text-decoration: none;
+            background: rgba(255, 255, 255, 0.05);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            padding: 0.5rem 1rem;
+            border-radius: 8px;
+            width: fit-content;
+            transition: var(--transition);
+        }
+
+        .source-btn:hover {
+            background: var(--primary);
+            border-color: var(--primary);
+            color: #ffffff;
+            box-shadow: 0 4px 12px rgba(59, 130, 246, 0.3);
+        }
+
+        /* Log Simulator Widget */
+        .simulator-layout {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 1.5rem;
+        }
+
+        @media (max-width: 768px) {
+            .simulator-layout {
+                grid-template-columns: 1fr;
+            }
+        }
+
+        .sim-panel {
+            background: #060913;
+            border: 1px solid rgba(255, 255, 255, 0.05);
+            border-radius: 12px;
+            display: flex;
+            flex-direction: column;
+            height: 350px;
+            overflow: hidden;
+        }
+
+        .sim-header {
+            background: rgba(255, 255, 255, 0.02);
+            border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+            padding: 0.75rem 1rem;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            font-size: 0.85rem;
+            font-weight: 500;
+            color: var(--text-muted);
+        }
+
+        .sim-body {
+            padding: 1rem;
+            overflow-y: auto;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.8rem;
+            flex-grow: 1;
+            white-space: pre-wrap;
+            color: #d1d5db;
+        }
+
+        .sim-body .err-line {
+            color: #f87171;
+            background: rgba(239, 68, 68, 0.1);
+            font-weight: 600;
+            padding: 0.1rem 0.3rem;
+            border-radius: 3px;
+            border-left: 3px solid #ef4444;
+        }
+
+        .sim-body .ctx-line {
+            color: #fbbf24;
+            background: rgba(251, 191, 36, 0.05);
+        }
+
+        .sim-body .skipped-line {
+            color: #4b5563;
+            font-style: italic;
+        }
+
+        .sim-controls {
+            display: flex;
+            justify-content: center;
+            margin: 1.5rem 0 0.5rem;
+        }
+
+        .btn-run {
+            background: linear-gradient(135deg, var(--primary), var(--purple));
+            color: #ffffff;
+            border: none;
+            padding: 0.8rem 1.8rem;
+            border-radius: 10px;
+            font-weight: 600;
+            font-size: 0.95rem;
+            cursor: pointer;
+            box-shadow: 0 4px 15px rgba(59, 130, 246, 0.3);
+            transition: var(--transition);
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+
+        .btn-run:hover {
+            box-shadow: 0 6px 20px rgba(59, 130, 246, 0.4);
+            transform: translateY(-1px);
+        }
+
+        .btn-run:active {
+            transform: translateY(1px);
+        }
+
+        /* Payload visualizer */
+        .payload-code {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.85rem;
+            background: #060913;
+            border: 1px solid rgba(255, 255, 255, 0.05);
+            border-radius: 12px;
+            padding: 1.5rem;
+            color: #34d399;
+            overflow-x: auto;
+        }
+
+        .payload-token { color: #f472b6; }
+        .payload-string { color: #34d399; }
+        .payload-key { color: #60a5fa; }
+        .payload-number { color: #fbbf24; }
+
+        footer {
+            text-align: center;
+            color: var(--text-muted);
+            font-size: 0.9rem;
+            padding: 2rem 0;
+            border-top: 1px solid rgba(255, 255, 255, 0.05);
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+
+        footer a {
+            color: var(--primary);
+            text-decoration: none;
+        }
+
+        footer a:hover {
+            text-decoration: underline;
+        }
+    </style>
+</head>
+<body>
+
+    <header>
+        <div class="badge">Jenkins Plugin Mechanism</div>
+        <h1>Cơ Chế Hoạt Động Của Plugin</h1>
+        <p class="subtitle">Mô tả trực quan luồng vận hành của công cụ phân tích log build tự động bằng AI</p>
+    </header>
+
+    <main>
+        <!-- SECTION 1: INTERACTIVE WORKFLOW -->
+        <section class="card">
+            <div class="card-title">
+                <svg fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10"></path>
+                </svg>
+                Quy Trình Hoạt Động (5 Bước)
+            </div>
+            <p style="color: var(--text-muted); margin-bottom: 1.5rem; font-size: 0.95rem;">
+                Click vào từng bước dưới đây để xem mô tả chi tiết và các hàm code xử lý tương ứng.
+            </p>
+
+            <div class="flow-container">
+                <div class="flow-step active" onclick="showStep(1, this)">
+                    <div class="step-num">1</div>
+                    <div class="step-title">Kích Hoạt</div>
+                    <div class="step-desc-short">Build lỗi kích hoạt listener/giao diện</div>
+                </div>
+                <div class="flow-step" onclick="showStep(2, this)">
+                    <div class="step-num">2</div>
+                    <div class="step-title">Lọc Log</div>
+                    <div class="step-desc-short">Trích xuất lỗi & giảm kích thước log</div>
+                </div>
+                <div class="flow-step" onclick="showStep(3, this)">
+                    <div class="step-num">3</div>
+                    <div class="step-title">Chọn Model</div>
+                    <div class="step-desc-short">Dò tìm & chọn model tự động</div>
+                </div>
+                <div class="flow-step" onclick="showStep(4, this)">
+                    <div class="step-num">4</div>
+                    <div class="step-title">Gửi API</div>
+                    <div class="step-desc-short">Đóng gói JSON & gửi lên AI Server</div>
+                </div>
+                <div class="flow-step" onclick="showStep(5, this)">
+                    <div class="step-num">5</div>
+                    <div class="step-title">Hiển Thị</div>
+                    <div class="step-desc-short">Render Markdown & hỗ trợ dịch</div>
+                </div>
+            </div>
+
+            <!-- Step Details -->
+            <div id="step-detail-1" class="flow-detail-box" style="display: block;">
+                <div class="detail-header">
+                    <div class="detail-title">Bước 1: Kích Hoạt Tiến Trình (Triggering)</div>
+                    <div class="detail-badge">Listener & Actions</div>
+                </div>
+                <div class="detail-content">
+                    <ul>
+                        <li><strong>Chạy tự động (Auto Trigger):</strong> Khi build hoàn thành, <code>AiLogAnalyzerRunListener</code> đón sự kiện và kiểm tra trạng thái build. Nếu kết quả là <code>Result.FAILURE</code> hoặc <code>Result.UNSTABLE</code>, nó sẽ khởi tạo background thread.</li>
+                        <li><strong>Chạy thủ công (Manual Trigger):</strong> Người dùng click nút "Analyze build log" trên giao diện Jenkins của build. Yêu cầu <code>POST</code> được gửi đến endpoint <code>doStartAnalysis</code> trong <code>AiLogAnalyzerAction</code> để kích hoạt.</li>
+                        <li>Khởi tạo luồng xử lý riêng biệt (Background Thread) để tránh gây nghẽn luồng chính của Jenkins.</li>
+                    </ul>
+                </div>
+            </div>
+
+            <div id="step-detail-2" class="flow-detail-box">
+                <div class="detail-header">
+                    <div class="detail-title">Bước 2: Lọc Log Thông Minh (Log Filtering)</div>
+                    <div class="detail-badge">Token Optimization</div>
+                </div>
+                <div class="detail-content">
+                    <ul>
+                        <li><strong>Quét lỗi đặc trưng:</strong> Sử dụng Regex để quét các từ khóa/mẫu lỗi phổ biến (Unity, Xcode, C# compile errors, Code signing, clang errors).</li>
+                        <li><strong>Giữ lại ngữ cảnh:</strong> Giữ lại dòng chứa lỗi và lấy thêm 3 dòng phía trước cùng 5 dòng phía sau dòng lỗi đó.</li>
+                        <li><strong>Loại bỏ nhiễu:</strong> Bỏ qua các dòng log thông thường không có tín hiệu lỗi, giảm dung lượng log gửi đi gấp 5-10 lần (tiết kiệm token của LLM).</li>
+                        <li><strong>Dự phòng:</strong> Nếu không tìm thấy lỗi, plugin sẽ quét cảnh báo (Warning). Nếu không có cảnh báo nào, nó sẽ fallback lấy 500 dòng log cuối cùng.</li>
+                    </ul>
+                </div>
+            </div>
+
+            <div id="step-detail-3" class="flow-detail-box">
+                <div class="detail-header">
+                    <div class="detail-title">Bước 3: Lựa Chọn Model AI (Model Negotiation)</div>
+                    <div class="detail-badge">Autodetect & Fallback</div>
+                </div>
+                <div class="detail-content">
+                    <ul>
+                        <li><strong>Tự động phát hiện (Autodetect):</strong> Gửi yêu cầu <code>GET</code> đến API endpoint <code>/models</code> hoặc <code>/v1/models</code> để lấy danh sách các model đang hoạt động trên Server.</li>
+                        <li><strong>Xử lý lỗi (Fallback list):</strong> Nếu model được chỉ định chạy lỗi (ví dụ do server overload), plugin tự động chuyển sang thử các model dự phòng khác trong danh sách (ví dụ: chuyển từ <code>gemini-1.5-pro</code> sang <code>gemini-1.5-flash</code>).</li>
+                    </ul>
+                </div>
+            </div>
+
+            <div id="step-detail-4" class="flow-detail-box">
+                <div class="detail-header">
+                    <div class="detail-title">Bước 4: Đóng Gói Và Gửi API Payload</div>
+                    <div class="detail-badge">API Request</div>
+                </div>
+                <div class="detail-content">
+                    <ul>
+                        <li><strong>Tạo prompt tối ưu:</strong> Tích hợp Prompt chỉ dẫn định dạng Markdown cụ thể (Tóm tắt build dạng bảng, Phân tích nguyên nhân gốc rễ, Đề xuất bước khắc phục).</li>
+                        <li><strong>Payload JSON chuẩn:</strong> Đóng gói payload JSON theo định dạng OpenAI/Gemini Chat Completions (messages array chứa role <code>user</code> và content).</li>
+                        <li><strong>Gửi HTTPS:</strong> Thực hiện HTTP POST, truyền token bảo mật (Authorization Bearer / API Key) và thiết lập timeout 30 giây.</li>
+                    </ul>
+                </div>
+            </div>
+
+            <div id="step-detail-5" class="flow-detail-box">
+                <div class="detail-header">
+                    <div class="detail-title">Bước 5: Hiển Thị & Dịch Kết Quả</div>
+                    <div class="detail-badge">Jenkins UI & Translator</div>
+                </div>
+                <div class="detail-content">
+                    <ul>
+                        <li><strong>Injected UI:</strong> Dữ liệu kết quả phân tích (Markdown) được lưu trữ trực tiếp vào build meta-data và hiển thị đẹp mắt tại trang tóm tắt build (Build Summary).</li>
+                        <li><strong>Dịch tiếng Việt (Translation):</strong> Khi người dùng click nút "Xem Tiếng Việt", plugin gọi endpoint dịch thuật. AI sẽ dịch nội dung phân tích sang tiếng Việt mà không làm hỏng cấu trúc Markdown, bảng biểu hay dịch sai các đoạn log code thô.</li>
+                    </ul>
+                </div>
+            </div>
+        </section>
+
+        <!-- SECTION 2: LOG FILTER SIMULATOR -->
+        <section class="card">
+            <div class="card-title">
+                <svg fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+                </svg>
+                Trực Quan Hóa Bộ Lọc Log (LogFilter Simulator)
+            </div>
+            <p style="color: var(--text-muted); margin-bottom: 1.5rem; font-size: 0.95rem;">
+                Nhấn nút bên dưới để mô phỏng thuật toán rút gọn log của <strong>LogFilter.java</strong>. Dòng lỗi màu đỏ và ngữ cảnh màu vàng sẽ được giữ lại, các dòng rác màu xám sẽ bị lược bỏ.
+            </p>
+
+            <div class="simulator-layout">
+                <div class="sim-panel">
+                    <div class="sim-header">
+                        <span>Raw Console Log (Log Thô từ Jenkins)</span>
+                        <span style="font-size:0.75rem; background:rgba(255,255,255,0.05); padding: 0.1rem 0.4rem; border-radius:3px;">30 lines</span>
+                    </div>
+                    <div id="raw-log-body" class="sim-body">Loading log...</div>
+                </div>
+
+                <div class="sim-panel">
+                    <div class="sim-header">
+                        <span>Filtered Log (Gửi lên AI API)</span>
+                        <span id="filtered-stats" style="font-size:0.75rem; color:#10b981; background:rgba(16,185,129,0.1); padding: 0.1rem 0.4rem; border-radius:3px;">Chưa lọc</span>
+                    </div>
+                    <div id="filtered-log-body" class="sim-body" style="color: #6b7280; display:flex; align-items:center; justify-content:center; text-align:center;">
+                        Bấm "Chạy Bộ Lọc Log" để xem kết quả rút gọn...
+                    </div>
+                </div>
+            </div>
+
+            <div class="sim-controls">
+                <button class="btn-run" onclick="runLogFilterSimulation()">
+                    <svg style="width:18px;height:18px;" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19.428 15.428a2 2 0 00-1.022-.547l-2.387-.477a6 6 0 00-3.86.517l-.318.158a6 6 0 01-3.86.517L6.05 15.21a2 2 0 00-1.806.547M8 4h8l-1 1v5.172a2 2 0 00.586 1.414l5 5c1.26 1.26.367 3.414-1.415 3.414H4.828c-1.782 0-2.674-2.154-1.414-3.414l5-5A2 2 0 009 9.172V5L8 4z"></path>
+                    </svg>
+                    Chạy Bộ Lọc Log (Simulate)
+                </button>
+            </div>
+        </section>
+
+        <!-- SECTION 3: PAYLOAD PREVIEW -->
+        <section class="card">
+            <div class="card-title">
+                <svg fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 9l3 3-3 3m5 0h3M5 20h14a2 2 0 002-2V6a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"></path>
+                </svg>
+                Cấu Trúc Yêu Cầu Gửi Cho AI (API Payload JSON)
+            </div>
+            <p style="color: var(--text-muted); margin-bottom: 1.5rem; font-size: 0.95rem;">
+                Payload JSON tiêu chuẩn được gửi lên endpoint của AI Server chứa prompt và dữ liệu log đã rút gọn.
+            </p>
+
+            <pre class="payload-code"><code>{
+  <span class="payload-key">"model"</span>: <span class="payload-string">"gemini-1.5-pro"</span>,
+  <span class="payload-key">"prompt"</span>: <span class="payload-string">"You are a DevOps and Build Engineer expert. Analyze the build log..."</span>,
+  <span class="payload-key">"log"</span>: <span class="payload-string">"[AI Log Analyzer: Pre-filtered high-signal build log...]"</span>,
+  <span class="payload-key">"messages"</span>: [
+    {
+      <span class="payload-key">"role"</span>: <span class="payload-string">"user"</span>,
+      <span class="payload-key">"content"</span>: <span class="payload-string">"You are a DevOps and Build Engineer expert... \n\n [Filtered Log Content]"</span>
+    }
+  ]
+}</code></pre>
+        </section>
+
+        <!-- SECTION 4: SOURCE MAP & JAVA FILES -->
+        <section class="card">
+            <div class="card-title">
+                <svg fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4"></path>
+                </svg>
+                Bản Đồ Code Nguồn (Source Code Components)
+            </div>
+            <p style="color: var(--text-muted); margin-bottom: 1.5rem; font-size: 0.95rem;">
+                Các class Java chính cấu thành nên hệ thống. Nhấp vào các liên kết để mở và chỉnh sửa trực tiếp các file code này.
+            </p>
+
+            <div class="source-grid">
+                <div class="source-card">
+                    <div>
+                        <div class="source-name">AiLogAnalyzerRunListener.java</div>
+                        <div class="source-role">Lắng nghe sự kiện kết thúc build của Jenkins, tự động kiểm tra trạng thái lỗi để kích hoạt phân tích log trong background.</div>
+                    </div>
+                    <a href="file:///g:/My%20App/AI-Jekins-Plugins/src/main/java/io/jenkins/plugins/ailoganalyzer/AiLogAnalyzerRunListener.java" class="source-btn">
+                        Mở File Source
+                    </a>
+                </div>
+
+                <div class="source-card">
+                    <div>
+                        <div class="source-name">LogFilter.java</div>
+                        <div class="source-role">Thực hiện các thuật toán regex lọc dòng lỗi và gom ngữ cảnh (lọc nhiễu), giúp tiết kiệm token đáng kể.</div>
+                    </div>
+                    <a href="file:///g:/My%20App/AI-Jekins-Plugins/src/main/java/io/jenkins/plugins/ailoganalyzer/LogFilter.java" class="source-btn">
+                        Mở File Source
+                    </a>
+                </div>
+
+                <div class="source-card">
+                    <div>
+                        <div class="source-name">AiLogAnalyzerAction.java</div>
+                        <div class="source-role">Class trung tâm giữ trạng thái phân tích, thực hiện gửi request REST tới API Server, xử lý tiến trình dịch thuật và kết nối với UI.</div>
+                    </div>
+                    <a href="file:///g:/My%20App/AI-Jekins-Plugins/src/main/java/io/jenkins/plugins/ailoganalyzer/AiLogAnalyzerAction.java" class="source-btn">
+                        Mở File Source
+                    </a>
+                </div>
+            </div>
+        </section>
+    </main>
+
+    <footer>
+        <p>AI Jenkins Log Analyzer Plugin &bull; Workspace: <a href="file:///g:/My%20App/AI-Jekins-Plugins/">AI-Jekins-Plugins</a></p>
+    </footer>
+
+    <script>
+        // Tab system for workflow steps
+        function showStep(stepNum, element) {
+            // Hide all details
+            const details = document.querySelectorAll('.flow-detail-box');
+            details.forEach(d => d.style.display = 'none');
+            
+            // Remove active classes from steps
+            const steps = document.querySelectorAll('.flow-step');
+            steps.forEach(s => s.classList.remove('active'));
+            
+            // Show target detail & activate step
+            document.getElementById('step-detail-' + stepNum).style.display = 'block';
+            element.classList.add('active');
+        }
+
+        // Setup raw logs data for simulator
+        const rawLogLines = [
+            "Started by user admin",
+            "Running as SYSTEM",
+            "Building in workspace G:\\My App\\AI-Jekins-Plugins",
+            "[EnvInject] - Loading node environment variables.",
+            "Checking out git repository...",
+            "Updating references...",
+            "Git checkout completed successfully.",
+            "Starting Unity Build process...",
+            "Unity Editor Version: 2022.3.10f1",
+            "Loading Unity project config files...",
+            "Unity Package Manager: loaded 45 packages.",
+            "Command: Unity.exe -batchmode -quit -projectPath . -executeMethod BuildScript.PerformBuild",
+            "Updating Unity asset database...",
+            "Compiling game scripts...",
+            "Assets/Scripts/PlayerController.cs(12,18): warning CS0108: 'PlayerController.name' hides inherited member 'Object.name'. Use the new keyword if hiding was intended.",
+            "Assets/Scripts/GameManager.cs(48,22): warning CS0219: The variable 'tempCount' is assigned but its value is never used.",
+            "Compiling shaders...",
+            "Assets/Scripts/Network/NetworkManager.cs(82,14): error CS1002: ; expected",
+            "Assets/Scripts/Network/NetworkManager.cs(83,9): error CS1513: } expected",
+            "Script compilation failed. Unity build aborted.",
+            "Error building Player: 2 errors, 2 warnings.",
+            "DisplayProgressNotification: Build Failed",
+            "Build step 'Invoke Unity' marked build as failure",
+            "Sending slack notification...",
+            "Slack notification sent successfully.",
+            "Finished: FAILURE"
+        ];
+
+        // Load raw log into DOM
+        const rawLogContainer = document.getElementById('raw-log-body');
+        rawLogContainer.innerHTML = rawLogLines.map((line, idx) => {
+            let className = '';
+            if (line.includes('error CS') || line.includes('Build Failed')) {
+                className = 'err-line';
+            } else if (line.includes('warning CS')) {
+                className = 'ctx-line'; // visually highlight warnings initially
+            }
+            return `<div id="raw-line-${idx}"><span style="color:#4b5563; margin-right: 10px; font-size:0.75rem;">${idx + 1}</span><span class="${className}">${line}</span></div>`;
+        }).join('');
+
+        // Simulation implementation of LogFilter.java
+        function runLogFilterSimulation() {
+            const filteredContainer = document.getElementById('filtered-log-body');
+            filteredContainer.style.display = 'block';
+            filteredContainer.innerHTML = '';
+
+            const filteredStats = document.getElementById('filtered-stats');
+            filteredStats.innerText = 'Đang lọc...';
+            filteredStats.style.color = '#fbbf24';
+
+            setTimeout(() => {
+                // Find error lines indexes
+                const errorIndices = [];
+                rawLogLines.forEach((line, idx) => {
+                    if (line.includes('error CS') || line.includes('Build Failed') || line.includes('Build Failed')) {
+                        errorIndices.push(idx);
+                    }
+                });
+
+                // Compute selection array (context window: 3 before, 5 after)
+                const isSelected = new Array(rawLogLines.length).fill(false);
+                errorIndices.forEach(targetIdx => {
+                    const start = Math.max(0, targetIdx - 3);
+                    const end = Math.min(rawLogLines.length - 1, targetIdx + 5);
+                    for (let j = start; j <= end; j++) {
+                        isSelected[j] = true;
+                    }
+                });
+
+                // Generate filtered HTML representation
+                let html = `<div><span style="color: #10b981;">[AI Log Analyzer: Pre-filtered high-signal build log. Non-essential info omitted]</span></div>`;
+                html += `<div><span style="color: #10b981;">--------------------------------------------------------------------------------</span></div>`;
+                
+                let lastAddedIndex = -1;
+                let filteredCount = 0;
+
+                for (let i = 0; i < rawLogLines.length; i++) {
+                    if (isSelected[i]) {
+                        if (lastAddedIndex !== -1 && i > lastAddedIndex + 1) {
+                            html += `<div class="skipped-line">[... ${i - lastAddedIndex - 1} lines omitted ...]</div>`;
+                        }
+                        
+                        let lineStyle = '';
+                        if (rawLogLines[i].includes('error CS') || rawLogLines[i].includes('Build Failed')) {
+                            lineStyle = 'class="err-line"';
+                        } else if (rawLogLines[i] !== rawLogLines[i-1]) {
+                            // Style the context surrounding the error
+                            const dist = Math.min(...errorIndices.map(errIdx => Math.abs(i - errIdx)));
+                            if (dist > 0 && dist <= 5) {
+                                lineStyle = 'class="ctx-line"';
+                            }
+                        }
+                        
+                        html += `<div><span style="color:#4b5563; margin-right: 10px; font-size:0.75rem;">${i + 1}</span><span ${lineStyle}>${rawLogLines[i]}</span></div>`;
+                        lastAddedIndex = i;
+                        filteredCount++;
+                    }
+                }
+
+                filteredContainer.innerHTML = html;
+                
+                // Show status
+                const reduction = Math.round((1 - (filteredCount / rawLogLines.length)) * 100);
+                filteredStats.innerText = `Đã rút gọn ${reduction}% (Từ 26 dòng còn ${filteredCount} dòng)`;
+                filteredStats.style.color = '#10b981';
+            }, 800);
+        }
+    </script>
+</body>
+</html>
