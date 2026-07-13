@@ -18,19 +18,10 @@ public class AiLogAnalyzerRunActionFactory extends TransientActionFactory<Run> {
 
     @Override
     public Collection<? extends Action> createFor(Run target) {
-        boolean hasPersisted = false;
         for (Action action : target.getActions()) {
             if (action instanceof AiLogAnalyzerAction) {
-                AiLogAnalyzerAction a = (AiLogAnalyzerAction) action;
-                if (!a.isTransient()) {
-                    hasPersisted = true;
-                    break;
-                }
+                return Collections.emptyList();
             }
-        }
-
-        if (hasPersisted) {
-            return Collections.emptyList();
         }
 
         return Collections.singleton(new AiLogAnalyzerAction(target, 500, null, "autodetect"));

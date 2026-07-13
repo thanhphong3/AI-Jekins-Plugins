@@ -87,7 +87,7 @@ public class AiLogAnalyzerNotifier extends Notifier implements SimpleBuildStep {
         // Always attach the AiLogAnalyzerAction to the build so the sidebar menu is available.
         AiLogAnalyzerAction action = null;
         for (hudson.model.Action a : run.getActions()) {
-            if (a instanceof AiLogAnalyzerAction && !((AiLogAnalyzerAction) a).isTransient()) {
+            if (a instanceof AiLogAnalyzerAction) {
                 action = (AiLogAnalyzerAction) a;
                 break;
             }

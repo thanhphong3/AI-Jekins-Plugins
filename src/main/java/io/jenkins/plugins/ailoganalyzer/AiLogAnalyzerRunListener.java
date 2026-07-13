@@ -23,7 +23,7 @@ public class AiLogAnalyzerRunListener extends RunListener<Run> {
 
         AiLogAnalyzerAction action = null;
         for (hudson.model.Action a : run.getActions()) {
-            if (a instanceof AiLogAnalyzerAction && !((AiLogAnalyzerAction) a).isTransient()) {
+            if (a instanceof AiLogAnalyzerAction) {
                 action = (AiLogAnalyzerAction) a;
                 break;
             }

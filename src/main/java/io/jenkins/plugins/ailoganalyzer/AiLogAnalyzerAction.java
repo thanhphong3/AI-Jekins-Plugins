@@ -424,7 +424,23 @@ public class AiLogAnalyzerAction implements RunAction2 {
         hudson.model.User currentUser = hudson.model.User.current();
         final String currentUserId = currentUser != null ? currentUser.getId() : "anonymous";
 
-        boolean started = startBackgroundAnalysis(selectedModel, currentUserId);
+        // Find the persisted action to run analysis on
+        AiLogAnalyzerAction actionToUse = this;
+        boolean hasPersisted = false;
+        for (hudson.model.Action a : run.getActions()) {
+            if (a instanceof AiLogAnalyzerAction) {
+                actionToUse = (AiLogAnalyzerAction) a;
+                hasPersisted = true;
+                break;
+            }
+        }
+        if (!hasPersisted) {
+            run.addAction(this);
+            this.isTransient = false;
+            actionToUse = this;
+        }
+
+        boolean started = actionToUse.startBackgroundAnalysis(selectedModel, currentUserId);
         if (started) {
             json.put("status", "success");
             json.put("message", "Analysis started in background.");
@@ -733,4 +749,76 @@ public class AiLogAnalyzerAction implements RunAction2 {
         }
         return Collections.emptyList();
     }
+
+    public String getRootCauseAnalysis() {
+        return extractSection(this.analysisResult, new String[]{"Root Cause Analysis", "Nguyên nhân gốc rễ", "Phân tích nguyên nhân"});
+    }
+
+    public String getRelevantLogSnippet() {
+        return extractSection(this.analysisResult, new String[]{"Relevant Log Snippet", "Đoạn trích log", "Đoạn log liên quan", "Log liên quan"});
+    }
+
+    public String getRootCauseAnalysisVn() {
+        return extractSection(this.translationVn, new String[]{"Root Cause Analysis", "Nguyên nhân gốc rễ", "Phân tích nguyên nhân"});
+    }
+
+    public String getRelevantLogSnippetVn() {
+        return extractSection(this.translationVn, new String[]{"Relevant Log Snippet", "Đoạn trích log", "Đoạn log liên quan", "Log liên quan"});
+    }
+
+    private String extractSection(String content, String[] keywords) {
+        if (content == null || content.isEmpty()) {
+            return "";
+        }
+        String[] lines = content.split("\\r?\\n");
+        StringBuilder sectionContent = new StringBuilder();
+        boolean inSection = false;
+
+        for (String line : lines) {
+            String trimmed = line.trim();
+            if (trimmed.startsWith("#")) {
+                if (inSection) {
+                    break;
+                }
+                String headerText = trimmed.replaceAll("^#+\\s*", "");
+                if (containsAnyKeyword(headerText, keywords)) {
+                    inSection = true;
+                    continue;
+                }
+            }
+            if (inSection) {
+                sectionContent.append(line).append("\n");
+            }
+        }
+        return sectionContent.toString().trim();
+    }
+
+    private boolean containsAnyKeyword(String text, String... keywords) {
+        if (text == null) {
+            return false;
+        }
+        String cleanText = text.replaceAll("[^a-zA-Z0-9\\s\\p{L}]", "").toLowerCase();
+        cleanText = cleanText.replaceAll("\\s+", " ").trim();
+
+        for (String keyword : keywords) {
+            String cleanKeyword = keyword.replaceAll("[^a-zA-Z0-9\\s\\p{L}]", "").toLowerCase();
+            cleanKeyword = cleanKeyword.replaceAll("\\s+", " ").trim();
+            if (cleanText.contains(cleanKeyword)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    public boolean isPrimary() {
+        if (run == null) {
+            return true;
+        }
+        List<AiLogAnalyzerAction> actions = run.getActions(AiLogAnalyzerAction.class);
+        if (actions.isEmpty()) {
+            return true;
+        }
+        return actions.get(0) == this;
+    }
 }
+

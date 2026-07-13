@@ -1,0 +1,298 @@
+<?jelly escape-by-default='true'?>
+<j:jelly xmlns:j="jelly:core" xmlns:st="jelly:stapler" xmlns:d="jelly:define" xmlns:l="/lib/layout" xmlns:t="/lib/hudson" xmlns:f="/lib/form" xmlns:i="jelly:fmt">
+    <!-- Render summary only when the action is primary and the analysis result is present -->
+    <j:if test="${it.primary &amp;&amp; it.analysisResult != null &amp;&amp; !it.analysisResult.trim().isEmpty()}">
+        <t:summary icon="symbol-search">
+            <div class="ai-summary-container" id="ai-summary-container-${it.hashCode()}">
+                <!-- Header and Buttons -->
+                <div class="ai-summary-header">
+                    <div style="display: flex; align-items: center; gap: 8px;">
+                        <span style="font-size: 20px; filter: drop-shadow(0 1px 2px rgba(79, 70, 229, 0.2));">✨</span>
+                        <strong style="font-size: 15px; color: var(--text-color, #111827);">AI Build Log Diagnosis</strong>
+                    </div>
+                    <div style="display: flex; align-items: center; gap: 8px;">
+                        <!-- Language toggle if Vietnamese translation is available -->
+                        <j:if test="${it.translationVn != null &amp;&amp; !it.translationVn.trim().isEmpty()}">
+                            <button class="ai-summary-btn-secondary" onclick="toggleSummaryLanguage_${it.hashCode()}()">
+                                <span class="summary-translate-icon">🇻🇳</span> <span class="summary-translate-text">Tiếng Việt</span>
+                            </button>
+                        </j:if>
+                        <!-- Go to details page -->
+                        <a href="ai-log-analysis/" class="ai-goto-detail-btn">
+                            Go to detail ➔
+                        </a>
+                    </div>
+                </div>
+
+                <!-- Root Cause Analysis Section -->
+                <div class="ai-root-cause-card">
+                    <div class="section-title">
+                        <span>🔍</span> Root Cause Analysis
+                    </div>
+                    <div class="summary-root-cause section-content-rendered">
+                        <!-- Content rendered dynamically by JS -->
+                    </div>
+                </div>
+
+                <!-- Relevant Log Snippet Section -->
+                <div class="ai-log-snippet-card">
+                    <div class="section-title">
+                        <span>📋</span> Relevant Log Snippet
+                    </div>
+                    <div class="summary-log-snippet section-content-rendered">
+                        <!-- Content rendered dynamically by JS -->
+                    </div>
+                </div>
+            </div>
+
+            <!-- Pre-populated raw markdown content for JS to read -->
+            <span id="raw-root-cause-ai-summary-container-${it.hashCode()}" style="display:none;">${it.rootCauseAnalysis}</span>
+            <span id="raw-log-snippet-ai-summary-container-${it.hashCode()}" style="display:none;">${it.relevantLogSnippet}</span>
+            <j:if test="${it.translationVn != null &amp;&amp; !it.translationVn.trim().isEmpty()}">
+                <span id="raw-root-cause-vn-ai-summary-container-${it.hashCode()}" style="display:none;">${it.rootCauseAnalysisVn}</span>
+                <span id="raw-log-snippet-vn-ai-summary-container-${it.hashCode()}" style="display:none;">${it.relevantLogSnippetVn}</span>
+            </j:if>
+
+            <!-- Stylesheet -->
+            <style>
+                .ai-summary-container {
+                    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+                    margin-top: 8px;
+                    max-width: 850px;
+                    width: 100%;
+                }
+                .ai-summary-header {
+                    display: flex;
+                    align-items: center;
+                    justify-content: space-between;
+                    margin-bottom: 12px;
+                    flex-wrap: wrap;
+                    gap: 10px;
+                }
+                .ai-goto-detail-btn {
+                    background-color: #4f46e5;
+                    color: white !important;
+                    border: none;
+                    padding: 6px 14px;
+                    border-radius: 6px;
+                    font-size: 12px;
+                    font-weight: 600;
+                    text-decoration: none !important;
+                    display: inline-flex;
+                    align-items: center;
+                    gap: 4px;
+                    box-shadow: 0 2px 4px rgba(79, 70, 229, 0.15);
+                    transition: all 0.2s ease;
+                }
+                .ai-goto-detail-btn:hover {
+                    background-color: #4338ca;
+                    transform: translateY(-1px);
+                    box-shadow: 0 4px 6px rgba(79, 70, 229, 0.25);
+                }
+                .ai-goto-detail-btn:active {
+                    transform: translateY(0);
+                }
+                .ai-summary-btn-secondary {
+                    background-color: var(--button-background, #f3f4f6);
+                    color: var(--text-color, #374151);
+                    border: 1px solid var(--border-color, #d1d5db);
+                    padding: 5px 12px;
+                    border-radius: 6px;
+                    font-size: 12px;
+                    font-weight: 600;
+                    cursor: pointer;
+                    display: inline-flex;
+                    align-items: center;
+                    gap: 4px;
+                    transition: all 0.2s;
+                }
+                .ai-summary-btn-secondary:hover {
+                    background-color: var(--button-hover-background, #e5e7eb);
+                    border-color: var(--border-hover-color, #9ca3af);
+                }
+                .ai-root-cause-card {
+                    background-color: var(--background, #ffffff);
+                    border: 1px solid var(--border-color, #e5e7eb);
+                    border-left: 4px solid #4f46e5;
+                    border-radius: 8px;
+                    padding: 12px 16px;
+                    margin-bottom: 12px;
+                    box-shadow: 0 1px 3px rgba(0,0,0,0.02);
+                }
+                .ai-log-snippet-card {
+                    background-color: var(--background, #ffffff);
+                    border: 1px solid var(--border-color, #e5e7eb);
+                    border-left: 4px solid #ef4444;
+                    border-radius: 8px;
+                    padding: 12px 16px;
+                    box-shadow: 0 1px 3px rgba(0,0,0,0.02);
+                }
+                .section-title {
+                    font-weight: 600;
+                    font-size: 13.5px;
+                    color: var(--text-color, #1f2937);
+                    margin-bottom: 6px;
+                    display: flex;
+                    align-items: center;
+                    gap: 6px;
+                }
+                .section-content-rendered {
+                    font-size: 13px;
+                    line-height: 1.5;
+                    color: var(--text-color, #4b5563);
+                    padding-left: 2px;
+                }
+            </style>
+
+            <!-- Markdown Parsing and Formatting Script -->
+            <script><![CDATA[
+                // Unique container context mapping
+                (function() {
+                    var containerId = "ai-summary-container-${it.hashCode()}";
+
+                    function renderSummaryMarkdown(text) {
+                        if (!text) return "";
+                        
+                        // 1. Escape HTML to prevent XSS
+                        var temp = document.createElement('div');
+                        temp.textContent = text;
+                        var html = temp.innerHTML;
+
+                        // 2. Extract and format multi-line code blocks
+                        var codeBlocks = [];
+                        html = html.replace(/```([a-zA-Z0-9_-]*)\n([\s\S]*?)```/g, function(match, lang, code) {
+                            var placeholder = '<!--CODEBLOCK_' + codeBlocks.length + '-->';
+                            var langTag = lang ? '<div style="background: #1e1e2e; color: #ff79c6; padding: 4px 10px; font-size: 10px; font-weight: bold; border-top-left-radius: 6px; border-top-right-radius: 6px; border-bottom: 1px solid #313244; font-family: Consolas, Monaco, monospace; letter-spacing: 0.05em;">' + lang.toUpperCase() + '</div>' : '';
+                            codeBlocks.push(
+                                '<div style="margin: 10px 0; border-radius: 6px; overflow: hidden; border: 1px solid #313244; box-shadow: 0 2px 4px rgba(0,0,0,0.05);">' +
+                                langTag +
+                                '<pre style="background: #1e1e2e; color: #cdd6f4; padding: 12px; margin: 0; overflow-x: auto; font-family: Consolas, Monaco, monospace; line-height: 1.4; font-size: 12px; border: none;">' + code.trim() + '</pre>' +
+                                '</div>'
+                            );
+                            return placeholder;
+                        });
+
+                        // 3. Extract and format inline code blocks
+                        var inlineCode = [];
+                        html = html.replace(/`([^`\n]+)`/g, function(match, code) {
+                            var placeholder = '<!--INLINE_CODE_' + inlineCode.length + '-->';
+                            inlineCode.push('<code style="background: var(--button-background, #f1f5f9); padding: 2px 4px; border-radius: 4px; font-family: Consolas, Monaco, monospace; color: #db2777; font-size: 11.5px; font-weight: 600; border: 1px solid var(--border-color, #e2e8f0); word-break: break-all;">' + code + '</code>');
+                            return placeholder;
+                        });
+
+                        // 4. Process line by line for bullet points and paragraphs
+                        var lines = html.split('\n');
+                        var processedLines = [];
+                        var inList = false;
+
+                        for (var i = 0; i < lines.length; i++) {
+                            var line = lines[i].trim();
+                            
+                            if (line.startsWith('- ') || line.startsWith('* ')) {
+                                if (!inList) {
+                                    processedLines.push('<ul style="margin: 6px 0; padding-left: 20px; list-style-type: disc;">');
+                                    inList = true;
+                                }
+                                processedLines.push('<li style="margin-bottom: 4px; line-height: 1.5; color: var(--text-color, #4b5563);">' + line.substring(2) + '</li>');
+                            } else {
+                                if (inList) {
+                                    processedLines.push('</ul>');
+                                    inList = false;
+                                }
+                                if (line !== "") {
+                                    processedLines.push('<p style="margin: 6px 0; color: var(--text-color, #4b5563); line-height: 1.5;">' + line + '</p>');
+                                }
+                            }
+                        }
+                        if (inList) {
+                            processedLines.push('</ul>');
+                        }
+
+                        html = processedLines.join('\n');
+
+                        // Replace escaped <br> tags with real HTML <br /> tags
+                        html = html.replace(/&lt;br\s*\/?&gt;/gi, '<br />');
+
+                        // 5. Restore inline code
+                        for (var i = 0; i < inlineCode.length; i++) {
+                            html = html.replace('<!--INLINE_CODE_' + i + '-->', inlineCode[i]);
+                        }
+
+                        // 6. Restore code blocks
+                        for (var i = 0; i < codeBlocks.length; i++) {
+                            html = html.replace('<!--CODEBLOCK_' + i + '-->', codeBlocks[i]);
+                        }
+
+                        // 7. Parse bold and italic text
+                        html = html.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
+                        html = html.replace(/\*([^*]+)\*/g, '<em>$1</em>');
+
+                        return html;
+                    }
+
+                    var currentSummaryLang = localStorage.getItem("ai_log_summary_lang") || "en";
+
+                    function updateSummaryUI() {
+                        var container = document.getElementById(containerId);
+                        if (!container) return;
+
+                        var rootCauseContainer = container.querySelector(".summary-root-cause");
+                        var logSnippetContainer = container.querySelector(".summary-log-snippet");
+
+                        var rawRootCause = "";
+                        var rawLogSnippet = "";
+
+                        var rawRootCauseEl = document.getElementById("raw-root-cause-" + containerId);
+                        var rawLogSnippetEl = document.getElementById("raw-log-snippet-" + containerId);
+                        var rawRootCauseVnEl = document.getElementById("raw-root-cause-vn-" + containerId);
+                        var rawLogSnippetVnEl = document.getElementById("raw-log-snippet-vn-" + containerId);
+
+                        if (currentSummaryLang === "vn" && rawRootCauseVnEl) {
+                            rawRootCause = rawRootCauseVnEl.textContent;
+                            rawLogSnippet = rawLogSnippetVnEl.textContent;
+                            
+                            var translateText = container.querySelector(".summary-translate-text");
+                            var translateIcon = container.querySelector(".summary-translate-icon");
+                            if (translateText && translateIcon) {
+                                translateIcon.textContent = "🇺🇸";
+                                translateText.textContent = "English";
+                            }
+                        } else if (rawRootCauseEl) {
+                            rawRootCause = rawRootCauseEl.textContent;
+                            rawLogSnippet = rawLogSnippetEl.textContent;
+
+                            var translateText = container.querySelector(".summary-translate-text");
+                            var translateIcon = container.querySelector(".summary-translate-icon");
+                            if (translateText && translateIcon) {
+                                translateIcon.textContent = "🇻🇳";
+                                translateText.textContent = "Tiếng Việt";
+                            }
+                        }
+
+                        if (rootCauseContainer && rawRootCause) {
+                            rootCauseContainer.innerHTML = renderSummaryMarkdown(rawRootCause);
+                        }
+                        if (logSnippetContainer && rawLogSnippet) {
+                            logSnippetContainer.innerHTML = renderSummaryMarkdown(rawLogSnippet);
+                        }
+                    }
+
+                    window["toggleSummaryLanguage_" + "${it.hashCode()}"] = function() {
+                        currentSummaryLang = currentSummaryLang === "en" ? "vn" : "en";
+                        localStorage.setItem("ai_log_summary_lang", currentSummaryLang);
+                        updateSummaryUI();
+                    };
+
+                    // Run immediately as elements are loaded, and also on load to be secure
+                    if (document.readyState === 'loading') {
+                        document.addEventListener('DOMContentLoaded', updateSummaryUI);
+                    } else {
+                        updateSummaryUI();
+                    }
+                    // Fallback timeout to ensure DOM nodes are resolved
+                    setTimeout(updateSummaryUI, 100);
+                })();
+            ]]></script>
+        </t:summary>
+    </j:if>
+</j:jelly>

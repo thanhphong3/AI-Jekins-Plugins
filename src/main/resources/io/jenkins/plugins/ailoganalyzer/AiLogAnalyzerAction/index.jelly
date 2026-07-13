@@ -108,7 +108,7 @@
             </div>
 
             <!-- Pre-populated raw analysis for JS to render safely -->
-            <script id="raw-analysis-data" type="text/plain" style="display:none;">${it.analysisResult}</script>
+            <div id="raw-analysis-data" style="display:none;">${it.analysisResult}</div>
 
             <!-- Styles and Scripts -->
             <style>
@@ -364,6 +364,9 @@
                     closeTable();
 
                     html = processedLines.join('\n');
+
+                    // Replace escaped <br> tags with real HTML <br /> tags
+                    html = html.replace(/&lt;br\s*\/?&gt;/gi, '<br />');
 
                     // 5. Parse bold (**text**)
                     html = html.replace(/\*\*([^*]+)\*\*/g, function(match, content) {
